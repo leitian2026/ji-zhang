@@ -40,6 +40,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.util.lerp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -464,7 +465,10 @@ private fun TopBar(
             .statusBarsPadding()
     ) {
         // 固定高度：里面的内容用 fillMaxSize，外层必须有确定的高度，不能用 heightIn(min)，否则会撑满整个屏幕
-        Box(Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.CenterStart) {
+        // 平时只留够放下标题的高度（42dp，标题紧贴状态栏、字不会被裁）；
+        // 选择模式里有"全选/删除/取消"按钮，需要 56dp，两者之间平滑过渡
+        val barHeight by animateDpAsState(if (selecting) 56.dp else 42.dp, tween(320), label = "barHeight")
+        Box(Modifier.fillMaxWidth().height(barHeight), contentAlignment = Alignment.CenterStart) {
             Crossfade(
                 targetState = selecting,
                 animationSpec = tween(320),
