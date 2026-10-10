@@ -172,7 +172,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
         if (listState.firstVisibleItemIndex == 0) {
             val d0 = listState.firstVisibleItemScrollOffset.toFloat()
             if (d0 > 0f) {
-                Animatable(0f).animateTo(1f, tween(durationMillis = 320, easing = TypingEasing)) {
+                Animatable(0f).animateTo(1f, tween(durationMillis = 460, easing = TypingEasing)) {
                     val want = d0 * (1f - value)
                     val cur = listState.firstVisibleItemScrollOffset.toFloat()
                     if (cur > want) listState.dispatchRawDelta(want - cur)
@@ -348,9 +348,9 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                     // 新增 / 删除 / 结束后卡片的出现、消失、挪位都带过渡，不会一下子跳
                     Box(
                         Modifier.animateItem(
-                            fadeInSpec = tween(300),
-                            placementSpec = tween(320, easing = TypingEasing),
-                            fadeOutSpec = tween(220)
+                            fadeInSpec = tween(420),
+                            placementSpec = tween(460, easing = TypingEasing),
+                            fadeOutSpec = tween(320)
                         )
                     ) {
                     when (item) {
@@ -469,7 +469,7 @@ private fun TopBar(
         Box(Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.CenterStart) {
             Crossfade(
                 targetState = selecting,
-                animationSpec = tween(220),
+                animationSpec = tween(320),
                 label = "topBar",
                 modifier = Modifier.fillMaxSize()
             ) { sel ->
@@ -803,7 +803,7 @@ private fun TripCardView(
             Column(
                 Modifier
                     // 加一行、改某一行（展开）、删一行、结束变结算：高度都是平滑变化，不是一下子跳
-                    .animateContentSize(tween(280, easing = TypingEasing))
+                    .animateContentSize(tween(420, easing = TypingEasing))
                     .combinedClickable(onClick = { if (selecting) onToggle() }, onLongClick = onLongPress)
                     .padding(horizontal = 10.dp, vertical = 8.dp)
             ) {
