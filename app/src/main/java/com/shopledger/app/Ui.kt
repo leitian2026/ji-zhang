@@ -89,10 +89,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import java.math.BigDecimal
 
 // 气泡里表格的列宽比例：名称、支出、数量、小计
-private const val W_NAME = 1.9f
-private const val W_PRICE = 1f
-private const val W_QTY = 0.8f
-private const val W_SUB = 1.2f
+private const val W_NAME = 1.4f
+private const val W_PRICE = 0.9f
+private const val W_QTY = 1.25f
+private const val W_SUB = 1.15f
 
 /** 白色卡片（外框）离屏幕左右边缘的距离，和卡片离输入框的距离用同一个值；窄屏小一点 */
 @Composable
@@ -219,7 +219,6 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
         }
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            TotalBar(ui.currentTotal, ui.currentCount)
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -417,28 +416,6 @@ private fun TickBox(
 }
 
 @Composable
-private fun TotalBar(total: BigDecimal, count: Int) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(TotalStrip)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text("当前累计", fontSize = 12.sp, color = Muted)
-            Text(
-                "¥ ${fmtMoney(total)}",
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-                color = DeepOrange
-            )
-        }
-        Text("共 $count 笔", color = Muted)
-    }
-}
-
-@Composable
 private fun TripHeader(label: String) {
     Box(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 4.dp), contentAlignment = Alignment.Center) {
         Text(label, fontSize = 12.sp, color = Muted)
@@ -462,7 +439,7 @@ private fun RowScope.Txt(
 ) {
     Text(
         text = text,
-        modifier = Modifier.weight(weight).padding(horizontal = 10.dp, vertical = 11.dp),
+        modifier = Modifier.weight(weight).padding(horizontal = 8.dp, vertical = 11.dp),
         textAlign = align,
         fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
         color = color,
