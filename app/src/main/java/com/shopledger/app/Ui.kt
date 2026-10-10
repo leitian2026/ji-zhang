@@ -104,15 +104,18 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
     var showEnd by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     var prevSize by remember { mutableIntStateOf(0) }
+    var prevCount by remember { mutableIntStateOf(0) }
 
     // 有新内容时滚到最底；删除、修改不会乱跳
-    LaunchedEffect(ui.items.size) {
+    LaunchedEffect(ui.items.size, ui.currentCount) {
         val size = ui.items.size
-        if (size > prevSize && size > 0) {
+        val grew = size > prevSize || ui.currentCount > prevCount
+        if (grew && size > 0) {
             if (prevSize == 0) listState.scrollToItem(size - 1)
             else listState.animateScrollToItem(size - 1)
         }
         prevSize = size
+        prevCount = ui.currentCount
     }
 
     fun submit() {
@@ -285,7 +288,7 @@ private fun Avatar(label: String, color: Color) {
 @Composable
 private fun TripHeader(label: String) {
     Box(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 4.dp), contentAlignment = Alignment.Center) {
-        Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFFFBE4D0)) {
+        Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFFD3E6F8)) {
             Text(
                 label,
                 fontSize = 12.sp,
@@ -383,10 +386,6 @@ private fun MyBubble(item: BatchItem, onEdit: (Entry) -> Unit) {
                         color = Muted,
                         modifier = Modifier.weight(1f)
                     )
-                    if (item.entries.size > 1) {
-                        Text("本次 ${fmtMoney(item.batchTotal)}", fontSize = 13.sp, color = Muted)
-                        Spacer(Modifier.width(12.dp))
-                    }
                     Text(
                         "累计 ¥${fmtMoney(item.cumulative)}",
                         fontSize = 15.sp,
