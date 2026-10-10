@@ -1,5 +1,20 @@
+@file:OptIn(ExperimentalFoundationApi::class)
+
 package com.shopledger.app
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import kotlinx.coroutines.delay
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -106,7 +121,9 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
 
     var input by rememberSaveable { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
-    var editing by remember { mutableStateOf<Entry?>(null) }
+    var editingId by remember { mutableStateOf<Long?>(null) }
+    var selected by remember { mutableStateOf(setOf<Long>()) }
+    var pendingDelete by remember { mutableStateOf<List<Long>?>(null) }
     var showEnd by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     var prevSize by remember { mutableIntStateOf(0) }
@@ -130,6 +147,17 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
         prevEnded = lastEnded
     }
 
+    val cards = ui.items.filterIsInstance<TripCard>()
+    val validIds = cards.map { it.tripId }.toSet()
+    val sel = selected.filter { it in validIds }.toSet()
+    val selecting = sel.isNotEmpty()
+    BackHandler(enabled = selecting) { selected = emptySet() }
+
+    fun toggle(id: Long) {
+        editingId = null
+        selected = if (id in sel) sel - id else sel + id
+    }
+
     fun submit() {
         when (val r = parseInput(input)) {
             is ParseResult.Err -> error = r.message
@@ -143,7 +171,23 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
-        topBar = { TopBar() },
+        topBar = {
+            TopBar(
+                selecting = selecting,
+                count = sel.size,
+                allSelected = cards.isNotEmpty() && sel.size == cards.size,
+                onSelectAll = {
+                    if (sel.size == cards.size) {
+                        selected = emptySet()
+                    } else {
+                        selected = validIds
+                        pendingDelete = validIds.toList()
+                    }
+                },
+                onDelete = { pendingDelete = sel.toList() },
+                onCancel = { selected = emptySet() }
+            )
+        },
         bottomBar = {
             InputBar(
                 value = input,
@@ -178,7 +222,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                         ) {
                             Text(
                                 "在下面输入就会出账\n苹果5　　面条10，2　　5",
-                                color = Muted,
+                                color = Color(0xFFB9C1CE),
                                 textAlign = TextAlign.Center
                             )
                         }
@@ -189,7 +233,21 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                         is HeaderItem -> TripHeader(item.label)
                         is TripCard -> TripCardView(
                             item = item,
-                            onEdit = { editing = it },
+                            checked = item.tripId in sel,
+                            selecting = selecting,
+                            editingId = editingId,
+                            onToggle = { toggle(item.tripId) },
+                            onLongPress = { pendingDelete = listOf(item.tripId) },
+                            onRowClick = { e -> if (selecting) toggle(item.tripId) else editingId = e.id },
+                            onSave = {
+                                vm.update(it)
+                                editingId = null
+                            },
+                            onDeleteEntry = {
+                                vm.delete(it)
+                                editingId = null
+                            },
+                            onCancelEdit = { editingId = null },
                             onCopy = {
                                 val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 cm.setPrimaryClip(ClipData.newPlainText("settlement", item.text))
@@ -203,18 +261,33 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
         }
     }
 
-    editing?.let { e ->
-        EditDialog(
-            entry = e,
-            onSave = {
-                vm.update(it)
-                editing = null
+    pendingDelete?.let { ids ->
+        val title = when {
+            ids.size == 1 -> "删除这个表格？"
+            ids.size == cards.size -> "是否全部删除？"
+            else -> "删除选中的 ${ids.size} 个表格？"
+        }
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text(title) },
+            text = {
+                Text(
+                    if (ids.size == 1) "里面的记录会一起删掉，删了就找不回来。"
+                    else "共 ${ids.size} 个表格，里面的记录会一起删掉，删了就找不回来。"
+                )
             },
-            onDelete = {
-                vm.delete(e)
-                editing = null
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.deleteTrips(ids)
+                        selected = selected - ids.toSet()
+                        editingId = null
+                        pendingDelete = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text("删除") }
             },
-            onDismiss = { editing = null }
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } }
         )
     }
 
@@ -249,20 +322,78 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
 }
 
 @Composable
-private fun TopBar() {
+private fun TopBar(
+    selecting: Boolean,
+    count: Int,
+    allSelected: Boolean,
+    onSelectAll: () -> Unit,
+    onDelete: () -> Unit,
+    onCancel: () -> Unit
+) {
     Box(
         Modifier
             .fillMaxWidth()
             .background(Brush.horizontalGradient(listOf(BrandStart, BrandEnd)))
             .statusBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
-        Text(
-            "超市记账",
-            color = Color.White,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold
-        )
+        Box(Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.CenterStart) {
+            if (!selecting) {
+                Text(
+                    "超市记账",
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            } else {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TickBox(allSelected, onSelectAll, tint = Color.White, markColor = Brand)
+                    Text(
+                        "全选",
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable(onClick = onSelectAll).padding(end = 8.dp, top = 8.dp, bottom = 8.dp)
+                    )
+                    Text(
+                        "已选 $count 个",
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = onDelete) {
+                        Text("删除", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                    TextButton(onClick = onCancel) { Text("取消", color = Color.White) }
+                }
+            }
+        }
+    }
+}
+
+/** 方框：点一下勾选 / 取消 */
+@Composable
+private fun TickBox(
+    checked: Boolean,
+    onClick: () -> Unit,
+    tint: Color = Color(0xFFB7C2D2),
+    markColor: Color = Color.White
+) {
+    Box(Modifier.clickable(onClick = onClick).padding(6.dp)) {
+        Box(
+            Modifier
+                .size(22.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(if (checked) tint else Color.Transparent)
+                .border(1.5.dp, tint, RoundedCornerShape(6.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (checked) Text("✓", color = markColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
@@ -333,12 +464,12 @@ private fun TableHead() {
 }
 
 @Composable
-private fun EntryLine(e: Entry, editable: Boolean, onClick: () -> Unit) {
+private fun EntryLine(e: Entry, onClick: () -> Unit, onLongClick: () -> Unit) {
     val unnamed = e.name.isBlank()
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable(enabled = editable, onClick = onClick),
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Txt(
@@ -348,19 +479,112 @@ private fun EntryLine(e: Entry, editable: Boolean, onClick: () -> Unit) {
             color = if (unnamed) Muted else Color.Unspecified
         )
         Txt(fmtNum(e.unitPrice), W_PRICE, softWrap = false)
-        Txt(fmtNum(e.quantity), W_QTY, softWrap = false)
+        Txt(fmtQty(e), W_QTY, softWrap = false)
         Txt(fmtMoney(e.subtotal()), W_SUB, bold = true, color = DeepOrange, softWrap = false)
     }
 }
 
-/** 表格：白色圆角卡片，表头淡蓝底，行与行之间一条细线，底部可带一行合计 */
+@Composable
+private fun RowScope.CellField(
+    value: String,
+    onChange: (String) -> Unit,
+    weight: Float,
+    align: TextAlign,
+    keyboardType: KeyboardType,
+    imeAction: ImeAction,
+    modifier: Modifier = Modifier,
+    onDone: () -> Unit = {}
+) {
+    Box(Modifier.weight(weight).padding(horizontal = 4.dp, vertical = 6.dp)) {
+        BasicTextField(
+            value = value,
+            onValueChange = onChange,
+            singleLine = true,
+            textStyle = TextStyle(fontSize = 15.sp, color = Ink, textAlign = align),
+            cursorBrush = SolidColor(Brand),
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
+            keyboardActions = KeyboardActions(onDone = { onDone() }),
+            modifier = modifier
+                .fillMaxWidth()
+                .background(Color.White, RoundedCornerShape(8.dp))
+                .border(1.dp, Brand, RoundedCornerShape(8.dp))
+                .padding(horizontal = 8.dp, vertical = 9.dp)
+        )
+    }
+}
+
+/** 表格里的一行变成可以直接改：名称、支出、数量（可带单位，如 2斤、1把） */
+@Composable
+private fun EditRow(e: Entry, onSave: (Entry) -> Unit, onDelete: () -> Unit, onCancel: () -> Unit) {
+    var name by remember(e.id) { mutableStateOf(e.name) }
+    var price by remember(e.id) { mutableStateOf(fmtNum(e.unitPrice)) }
+    var qty by remember(e.id) { mutableStateOf(fmtQty(e)) }
+    var err by remember(e.id) { mutableStateOf<String?>(null) }
+    val focus = remember { FocusRequester() }
+    val requester = remember { BringIntoViewRequester() }
+
+    fun save() {
+        val p = parseNum(price)
+        val q = parseQty(qty)
+        if (p == null || q == null) {
+            err = "支出和数量要填数字"
+            return
+        }
+        val msg = validate(p, q.first)
+        if (msg != null) {
+            err = msg
+            return
+        }
+        onSave(e.copy(name = name.trim().take(20), unitPrice = p, quantity = q.first, unit = q.second))
+    }
+
+    LaunchedEffect(e.id) {
+        runCatching { focus.requestFocus() }
+        delay(350)
+        requester.bringIntoView()
+    }
+
+    val p = parseNum(price)
+    val q = parseQty(qty)
+    val sub = if (p != null && q != null) fmtMoney(p.multiply(q.first)) else "—"
+
+    Column(Modifier.fillMaxWidth().background(Color(0xFFF2F9FF)).bringIntoViewRequester(requester)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            CellField(
+                name, { name = it; err = null }, W_NAME, TextAlign.Start,
+                KeyboardType.Text, ImeAction.Next, Modifier.focusRequester(focus)
+            )
+            CellField(price, { price = it; err = null }, W_PRICE, TextAlign.End, KeyboardType.Decimal, ImeAction.Next)
+            CellField(
+                qty, { qty = it; err = null }, W_QTY, TextAlign.End,
+                KeyboardType.Text, ImeAction.Done, onDone = { save() }
+            )
+            Txt(sub, W_SUB, bold = true, color = DeepOrange, softWrap = false)
+        }
+        err?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 10.dp))
+        }
+        Row(Modifier.fillMaxWidth().padding(end = 4.dp), horizontalArrangement = Arrangement.End) {
+            TextButton(
+                onClick = onDelete,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+            ) { Text("删除这行") }
+            TextButton(onClick = onCancel) { Text("取消") }
+            TextButton(onClick = { save() }) { Text("保存", fontWeight = FontWeight.Bold) }
+        }
+    }
+}
+
+/** 表格：白色圆角卡片，表头淡蓝底，行与行之间一条细线。点某一行就地修改。 */
 @Composable
 private fun LedgerTable(
     entries: List<Entry>,
-    editable: Boolean,
-    totalLabel: String? = null,
-    total: BigDecimal? = null,
-    onEdit: (Entry) -> Unit
+    editingId: Long?,
+    onRowClick: (Entry) -> Unit,
+    onLongPress: () -> Unit,
+    onSave: (Entry) -> Unit,
+    onDelete: (Entry) -> Unit,
+    onCancel: () -> Unit
 ) {
     Surface(
         shape = RoundedCornerShape(14.dp),
@@ -371,22 +595,12 @@ private fun LedgerTable(
         Column {
             TableHead()
             entries.forEach { e ->
-                EntryLine(e, editable) { onEdit(e) }
-                HLine()
-            }
-            if (totalLabel != null && total != null) {
-                Row(
-                    Modifier.fillMaxWidth().background(TableHeadBg).padding(horizontal = 8.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(totalLabel, fontSize = 13.sp, color = Muted, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    Text(
-                        "¥${fmtMoney(total)}",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = DeepOrange
-                    )
+                if (e.id == editingId) {
+                    EditRow(e, onSave, { onDelete(e) }, onCancel)
+                } else {
+                    EntryLine(e, { onRowClick(e) }, onLongPress)
                 }
+                HLine()
             }
         }
     }
@@ -394,38 +608,69 @@ private fun LedgerTable(
 
 /** 一趟的卡片：记账中是表格 + 累计；点结束后，同一张卡片直接变成"本趟结算"。 */
 @Composable
-private fun TripCardView(item: TripCard, onEdit: (Entry) -> Unit, onCopy: () -> Unit, onReopen: () -> Unit) {
+private fun TripCardView(
+    item: TripCard,
+    checked: Boolean,
+    selecting: Boolean,
+    editingId: Long?,
+    onToggle: () -> Unit,
+    onLongPress: () -> Unit,
+    onRowClick: (Entry) -> Unit,
+    onSave: (Entry) -> Unit,
+    onDeleteEntry: (Entry) -> Unit,
+    onCancelEdit: () -> Unit,
+    onCopy: () -> Unit,
+    onReopen: () -> Unit
+) {
     Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
         Surface(
             modifier = Modifier.fillMaxWidth().widthIn(max = BubbleMaxWidth),
             shape = RoundedCornerShape(18.dp),
             color = Color.White,
+            border = if (checked) BorderStroke(2.dp, Brand) else null,
             shadowElevation = 3.dp
         ) {
-            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                Text(
-                    if (item.ended) "本趟结算" else "本趟记账",
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(bottom = 6.dp)
-                )
-                LedgerTable(item.entries, !item.ended, onEdit = onEdit)
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("共 ${item.count} 笔", fontSize = 13.sp, color = Muted, modifier = Modifier.weight(1f))
+            Column(
+                Modifier
+                    .combinedClickable(onClick = { if (selecting) onToggle() }, onLongClick = onLongPress)
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            ) {
+                Row(Modifier.padding(bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TickBox(checked, onToggle, tint = if (checked) Brand else Color(0xFFB7C2D2))
+                    Spacer(Modifier.width(2.dp))
                     Text(
-                        (if (item.ended) "总计 " else "累计 ") + "¥${fmtMoney(item.total)}",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = DeepOrange
+                        if (item.ended) "本趟结算" else "本趟记账",
+                        fontWeight = FontWeight.Bold
                     )
                 }
-                if (item.ended) {
-                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                        TextButton(onClick = onCopy) { Text("复制") }
-                        if (item.canReopen) {
-                            TextButton(onClick = onReopen) { Text("继续记这一趟") }
+                Column(Modifier.padding(horizontal = 4.dp)) {
+                    LedgerTable(
+                        entries = item.entries,
+                        editingId = editingId,
+                        onRowClick = onRowClick,
+                        onLongPress = onLongPress,
+                        onSave = onSave,
+                        onDelete = onDeleteEntry,
+                        onCancel = onCancelEdit
+                    )
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("共 ${item.count} 笔", fontSize = 13.sp, color = Muted, modifier = Modifier.weight(1f))
+                        Text(
+                            (if (item.ended) "总计 " else "累计 ") + "¥${fmtMoney(item.total)}",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = DeepOrange
+                        )
+                    }
+                    if (item.ended) {
+                        Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                            TextButton(onClick = onCopy) { Text("复制") }
+                            if (item.canReopen) {
+                                TextButton(onClick = onReopen) { Text("继续记这一趟") }
+                            }
                         }
                     }
                 }
@@ -462,7 +707,7 @@ private fun InputBar(
                 value = value,
                 onValueChange = onChange,
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("苹果5　面条10，2") },
+                placeholder = { Text("苹果5　面条10，2", color = Color(0xFFB9C1CE)) },
                 singleLine = true,
                 shape = RoundedCornerShape(24.dp),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -478,72 +723,6 @@ private fun InputBar(
             Button(onClick = onSend, enabled = value.isNotBlank()) { Text("记账") }
         }
     }
-}
-
-@Composable
-private fun EditDialog(entry: Entry, onSave: (Entry) -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit) {
-    var name by remember { mutableStateOf(entry.name) }
-    var price by remember { mutableStateOf(fmtNum(entry.unitPrice)) }
-    var qty by remember { mutableStateOf(fmtNum(entry.quantity)) }
-    var err by remember { mutableStateOf<String?>(null) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("修改这一笔") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("名称（可留空）") },
-                    singleLine = true
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = price,
-                    onValueChange = { price = it },
-                    label = { Text("支出") },
-                    singleLine = true
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = qty,
-                    onValueChange = { qty = it },
-                    label = { Text("数量") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
-                )
-                if (err != null) {
-                    Text(err ?: "", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                val p = price.trim().toBigDecimalOrNull()
-                val q = qty.trim().toBigDecimalOrNull()
-                if (p == null || q == null) {
-                    err = "支出和数量要填数字"
-                } else {
-                    val msg = validate(p, q)
-                    if (msg != null) {
-                        err = msg
-                    } else {
-                        onSave(entry.copy(name = name.trim().take(20), unitPrice = p, quantity = q))
-                    }
-                }
-            }) { Text("保存") }
-        },
-        dismissButton = {
-            Row {
-                TextButton(
-                    onClick = onDelete,
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) { Text("删除") }
-                TextButton(onClick = onDismiss) { Text("取消") }
-            }
-        }
-    )
 }
 
 @Composable
