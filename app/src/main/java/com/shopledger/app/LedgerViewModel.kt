@@ -25,17 +25,20 @@ data class HeaderItem(val label: String, val tripId: Long) : Item {
     override val key: String get() = "h$tripId"
 }
 
-data class RowItem(
-    val entry: Entry,
-    val seq: Int,
+/** 一次输入（可能含多笔）= 一个气泡 */
+data class BatchItem(
+    val entries: List<Entry>,
+    val batchTotal: BigDecimal,
     val cumulative: BigDecimal,
+    val time: Long,
     val editable: Boolean
 ) : Item {
-    override val key: String get() = "e${entry.id}"
+    override val key: String get() = "b${entries.first().id}"
 }
 
 data class FooterItem(
     val tripId: Long,
+    val entries: List<Entry>,
     val total: BigDecimal,
     val count: Int,
     val text: String,
@@ -50,6 +53,9 @@ data class UiState(
     val currentCount: Int = 0,
     val loaded: Boolean = false
 )
+
+fun fmtTime(ms: Long): String =
+    SimpleDateFormat("HH:mm", Locale.CHINA).format(ms)
 
 fun fmtDate(ms: Long): String =
     SimpleDateFormat("M月d日 HH:mm", Locale.CHINA).format(ms)
@@ -83,14 +89,17 @@ private fun buildState(trips: List<Trip>, entries: List<Entry>): UiState {
         val label = headerLabel(idx + 1, trip)
         items.add(HeaderItem(label, trip.id))
         var cum = BigDecimal.ZERO.setScale(2)
-        es.forEachIndexed { i, e ->
-            cum = cum.add(e.subtotal())
-            items.add(RowItem(e, i + 1, cum, !ended))
+        for (batch in es.groupBy { it.createdAt }.values) {
+            var bt = BigDecimal.ZERO.setScale(2)
+            for (e in batch) bt = bt.add(e.subtotal())
+            cum = cum.add(bt)
+            items.add(BatchItem(batch, bt, cum, batch.first().createdAt, !ended))
         }
         if (ended) {
             items.add(
                 FooterItem(
                     tripId = trip.id,
+                    entries = es,
                     total = cum,
                     count = es.size,
                     text = settlementText(label, es, cum),
