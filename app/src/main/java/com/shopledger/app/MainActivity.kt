@@ -9,7 +9,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             LedgerTheme {
-                PhoneFrame {
+                ScaleFrame {
                     LedgerScreen()
                 }
             }
