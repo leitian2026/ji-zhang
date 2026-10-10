@@ -180,9 +180,9 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                 items(ui.items, key = { it.key }) { item ->
                     when (item) {
                         is HeaderItem -> TripHeader(item.label)
-                        is BatchItem -> MyBubble(item) { editing = it }
-                        is FooterItem -> SysBubble(
+                        is TripCard -> TripCardView(
                             item = item,
+                            onEdit = { editing = it },
                             onCopy = {
                                 val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 cm.setPrimaryClip(ClipData.newPlainText("settlement", item.text))
@@ -278,15 +278,6 @@ private fun TotalBar(total: BigDecimal, count: Int) {
             )
         }
         Text("共 $count 笔", color = Muted)
-    }
-}
-
-@Composable
-private fun Avatar(label: String, color: Color) {
-    Surface(shape = CircleShape, color = Color.White, shadowElevation = 2.dp, modifier = Modifier.size(38.dp)) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(label, color = color, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-        }
     }
 }
 
@@ -394,71 +385,41 @@ private fun LedgerTable(
     }
 }
 
-/** 我的气泡：靠右，里面是这一次输入的小表格，下面是累计。点某一行可以修改。 */
+/** 一趟的卡片：记账中是表格 + 累计；点结束后，同一张卡片直接变成"本趟结算"。 */
 @Composable
-private fun MyBubble(item: BatchItem, onEdit: (Entry) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().padding(start = 12.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
-        horizontalArrangement = Arrangement.End,
-        verticalAlignment = Alignment.Bottom
-    ) {
+private fun TripCardView(item: TripCard, onEdit: (Entry) -> Unit, onCopy: () -> Unit, onReopen: () -> Unit) {
+    Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
         Surface(
-            modifier = Modifier.weight(1f, fill = false).widthIn(max = BubbleMaxWidth),
-            shape = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp),
-            color = BubbleMine,
-            shadowElevation = 2.dp
-        ) {
-            Column(Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 4.dp)) {
-                LedgerTable(item.entries, item.editable, "累计", item.cumulative, onEdit)
-                Text(
-                    fmtTime(item.time),
-                    fontSize = 11.sp,
-                    color = Color.White.copy(alpha = 0.85f),
-                    textAlign = TextAlign.End,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp)
-                )
-            }
-        }
-        Spacer(Modifier.width(8.dp))
-        Avatar("我", Brand)
-    }
-}
-
-/** 结算气泡：靠左，整趟的明细和总计。 */
-@Composable
-private fun SysBubble(item: FooterItem, onCopy: () -> Unit, onReopen: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().padding(start = 10.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
-        horizontalArrangement = Arrangement.Start,
-        verticalAlignment = Alignment.Bottom
-    ) {
-        Avatar("账", SysAvatar)
-        Spacer(Modifier.width(8.dp))
-        Surface(
-            modifier = Modifier.weight(1f, fill = false).widthIn(max = BubbleMaxWidth),
-            shape = RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp),
+            modifier = Modifier.fillMaxWidth().widthIn(max = BubbleMaxWidth),
+            shape = RoundedCornerShape(18.dp),
             color = Color.White,
             shadowElevation = 3.dp
         ) {
             Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                Text("本趟结算", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp))
-                LedgerTable(item.entries, false) {}
+                Text(
+                    if (item.ended) "本趟结算" else "本趟记账",
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+                LedgerTable(item.entries, !item.ended, onEdit = onEdit)
                 Row(
                     Modifier.fillMaxWidth().padding(top = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("共 ${item.count} 笔", fontSize = 13.sp, color = Muted, modifier = Modifier.weight(1f))
                     Text(
-                        "总计 ¥${fmtMoney(item.total)}",
+                        (if (item.ended) "总计 " else "累计 ") + "¥${fmtMoney(item.total)}",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = DeepOrange
                     )
                 }
-                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                    TextButton(onClick = onCopy) { Text("复制") }
-                    if (item.canReopen) {
-                        TextButton(onClick = onReopen) { Text("继续记这一趟") }
+                if (item.ended) {
+                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                        TextButton(onClick = onCopy) { Text("复制") }
+                        if (item.canReopen) {
+                            TextButton(onClick = onReopen) { Text("继续记这一趟") }
+                        }
                     }
                 }
             }
