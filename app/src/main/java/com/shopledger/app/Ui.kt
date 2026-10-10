@@ -94,6 +94,11 @@ private const val W_PRICE = 1f
 private const val W_QTY = 0.8f
 private const val W_SUB = 1.2f
 
+/** 表格左右两边的留白，和表格离输入框的距离用同一个值；窄屏小一点 */
+@Composable
+private fun edgeGap(): androidx.compose.ui.unit.Dp =
+    if (LocalConfiguration.current.screenWidthDp < 500) 32.dp else 48.dp
+
 // 平板上气泡不会无限拉宽
 private val BubbleMaxWidth = 560.dp
 
@@ -218,7 +223,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 60.dp)
+                contentPadding = PaddingValues(top = 8.dp, bottom = edgeGap())
             ) {
                 if (ui.loaded && ui.items.isEmpty()) {
                     item(key = "empty") {
@@ -662,7 +667,7 @@ private fun TripCardView(
                         TickBox(checked, onToggle, tint = if (checked) Brand else Color(0xFFB7C2D2))
                     }
                 }
-                Column(Modifier.padding(horizontal = 12.dp)) {
+                Column(Modifier.padding(horizontal = edgeGap() - 16.dp)) {
                     LedgerTable(
                         entries = item.entries,
                         editingId = editingId,
