@@ -4,16 +4,22 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- 袋子提手 -->
+    <path
+        android:pathData="M39,48Q54,24 69,48"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- 袋身 -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M34,28H74V80L69,76L64,80L59,76L54,80L49,76L44,80L39,76L34,80Z" />
+        android:pathData="M32,44H76V80Q76,85 71,85H37Q32,85 32,80Z" />
+    <!-- ¥ -->
     <path
-        android:fillColor="#1E6B52"
-        android:pathData="M42,40H66V44H42Z" />
-    <path
-        android:fillColor="#1E6B52"
-        android:pathData="M42,50H66V54H42Z" />
-    <path
-        android:fillColor="#1E6B52"
-        android:pathData="M42,60H56V64H42Z" />
+        android:pathData="M46,53L54,64L62,53M54,64V76M47,66H61M47,71H61"
+        android:strokeColor="#FF6A2B"
+        android:strokeWidth="3.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
 </vector>
