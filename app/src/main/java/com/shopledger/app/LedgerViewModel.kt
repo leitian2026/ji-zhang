@@ -89,12 +89,9 @@ private fun buildState(trips: List<Trip>, entries: List<Entry>): UiState {
         val label = headerLabel(idx + 1, trip)
         items.add(HeaderItem(label, trip.id))
         var cum = BigDecimal.ZERO.setScale(2)
-        for (batch in es.groupBy { it.createdAt }.values) {
-            var bt = BigDecimal.ZERO.setScale(2)
-            for (e in batch) bt = bt.add(e.subtotal())
-            cum = cum.add(bt)
-            items.add(BatchItem(batch, bt, cum, batch.first().createdAt, !ended))
-        }
+        // 一趟只有一个气泡、一张表：没结束之前记的所有东西都在一起
+        for (e in es) cum = cum.add(e.subtotal())
+        items.add(BatchItem(es, cum, cum, es.last().createdAt, !ended))
         if (ended) {
             items.add(
                 FooterItem(
