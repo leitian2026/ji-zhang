@@ -118,11 +118,14 @@ private const val TypingMs = 380
 /** 接近匀速、只有两端稍微柔一点：中间每一帧走的距离几乎一样，结尾不会明显变慢、不会有"停一下"的感觉 */
 private val TypingEasing = androidx.compose.animation.core.CubicBezierEasing(0.25f, 0.1f, 0.75f, 0.9f)
 
-// 气泡里表格的列宽比例：名称、支出、数量、小计
+// 气泡里表格的列宽比例：名称、单价、数量、小计
 private const val W_NAME = 1.4f
 private const val W_PRICE = 0.9f
 private const val W_QTY = 1.25f
 private const val W_SUB = 1.15f
+
+/** "待称"的颜色：和蓝色的金额区分开，一眼看出还有没定的 */
+private val PendingColor = Color(0xFFD9822B)
 
 /** 白色卡片（外框）离屏幕左右边缘的距离，和卡片离输入框的距离用同一个值；窄屏小一点 */
 @Composable
@@ -333,7 +336,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                "在下面输入就会出账\n苹果5　　面条10，2　　5",
+                                "在下面输入就会出账\n苹果5　　面条10，2　　5\n米6.5/斤（称完再补数量）",
                                 color = Color(0xFFB9C1CE),
                                 textAlign = TextAlign.Center
                             )
@@ -421,6 +424,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
         EndDialog(
             count = ui.currentCount,
             total = ui.currentTotal,
+            pending = ui.currentPending,
             onConfirm = {
                 vm.end(it)
                 showEnd = false
@@ -586,7 +590,7 @@ private fun RowScope.Txt(
 private fun TableHead() {
     Row(Modifier.fillMaxWidth().background(TableHeadBg)) {
         Txt("名称", W_NAME, TextAlign.Start, size = 12.sp, color = Muted, bold = true)
-        Txt("支出", W_PRICE, size = 12.sp, color = Muted, bold = true)
+        Txt("单价", W_PRICE, size = 12.sp, color = Muted, bold = true)
         Txt("数量", W_QTY, size = 12.sp, color = Muted, bold = true)
         Txt("小计", W_SUB, size = 12.sp, color = Muted, bold = true)
     }
@@ -607,9 +611,17 @@ private fun EntryLine(e: Entry, onClick: () -> Unit, onLongClick: () -> Unit) {
             TextAlign.Start,
             color = if (unnamed) Muted else Color.Unspecified
         )
-        Txt(fmtNum(e.unitPrice), W_PRICE, softWrap = false)
-        Txt(fmtQty(e), W_QTY, softWrap = false)
-        Txt(fmtMoney(e.subtotal()), W_SUB, bold = true, color = DeepOrange, softWrap = false)
+        Txt(
+            fmtNum(e.unitPrice) + if (e.pending) "/" + e.unit else "",
+            W_PRICE,
+            softWrap = false
+        )
+        Txt(fmtQty(e), W_QTY, softWrap = false, color = if (e.pending) PendingColor else Color.Unspecified)
+        if (e.pending) {
+            Txt("待定", W_SUB, softWrap = false, color = Muted)
+        } else {
+            Txt(fmtMoney(e.subtotal()), W_SUB, bold = true, color = DeepOrange, softWrap = false)
+        }
     }
 }
 
@@ -642,29 +654,46 @@ private fun RowScope.CellField(
     }
 }
 
-/** 表格里的一行变成可以直接改：名称、支出、数量（可带单位，如 2斤、1把） */
+/** 表格里的一行变成可以直接改：名称、单价、数量（可带单位，如 2斤、1把；只写单位如"斤"表示待称） */
 @Composable
 private fun EditRow(e: Entry, onSave: (Entry) -> Unit, onDelete: () -> Unit, onCancel: () -> Unit) {
     var name by remember(e.id) { mutableStateOf(e.name) }
     var price by remember(e.id) { mutableStateOf(fmtNum(e.unitPrice)) }
-    var qty by remember(e.id) { mutableStateOf(fmtQty(e)) }
+    // 待称的行：数量格里放单位（如"斤"），称完把它改成 2.3斤 / 2.3 就行
+    var qty by remember(e.id) { mutableStateOf(if (e.pending) e.unit else fmtQty(e)) }
     var err by remember(e.id) { mutableStateOf<String?>(null) }
     val focus = remember { FocusRequester() }
     val requester = remember { BringIntoViewRequester() }
 
     fun save() {
         val p = parseNum(price)
-        val q = parseQty(qty)
-        if (p == null || q == null) {
-            err = "支出和数量要填数字"
+        if (p == null) {
+            err = "单价要填数字"
             return
         }
-        val msg = validate(p, q.first)
+        val qi = parseQtyInput(qty)
+        // 称完没写单位时，沿用这一行原来的单位
+        val unit = qi.unit.ifBlank { if (e.pending) e.unit else "" }
+        val n = qi.number
+        if (n == null) {
+            if (unit.isBlank()) {
+                err = "数量要填数字；只写单位（如 斤）表示还没称"
+                return
+            }
+            val msg = validate(p, BigDecimal.ONE)
+            if (msg != null) {
+                err = msg
+                return
+            }
+            onSave(e.copy(name = name.trim().take(20), unitPrice = p, quantity = BigDecimal.ONE, unit = unit, pending = true))
+            return
+        }
+        val msg = validate(p, n)
         if (msg != null) {
             err = msg
             return
         }
-        onSave(e.copy(name = name.trim().take(20), unitPrice = p, quantity = q.first, unit = q.second))
+        onSave(e.copy(name = name.trim().take(20), unitPrice = p, quantity = n, unit = unit, pending = false))
     }
 
     LaunchedEffect(e.id) {
@@ -674,8 +703,12 @@ private fun EditRow(e: Entry, onSave: (Entry) -> Unit, onDelete: () -> Unit, onC
     }
 
     val p = parseNum(price)
-    val q = parseQty(qty)
-    val sub = if (p != null && q != null) fmtMoney(p.multiply(q.first)) else "—"
+    val qn = parseQtyInput(qty).number
+    val sub = when {
+        p == null -> "—"
+        qn == null -> "待定"
+        else -> fmtMoney(p.multiply(qn))
+    }
 
     Column(Modifier.fillMaxWidth().background(Color(0xFFF2F9FF)).bringIntoViewRequester(requester)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -816,7 +849,15 @@ private fun TripCardView(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            "共 ${item.count} 笔",
+                            androidx.compose.ui.text.buildAnnotatedString {
+                                append("共 ${item.count} 笔")
+                                if (item.pendingCount > 0) {
+                                    append("　")
+                                    pushStyle(androidx.compose.ui.text.SpanStyle(color = PendingColor))
+                                    append("${item.pendingCount} 项待称，未计入")
+                                    pop()
+                                }
+                            },
                             fontSize = 13.sp,
                             color = Muted,
                             modifier = Modifier.weight(1f).alignByBaseline()
@@ -880,7 +921,7 @@ private fun InputBar(
                         onInputTouch()
                     }
                 },
-                placeholder = { Text("苹果5　面条10，2", color = Color(0xFFB9C1CE)) },
+                placeholder = { Text("苹果5　面条10，2　米6.5/斤", color = Color(0xFFB9C1CE)) },
                 singleLine = true,
                 shape = RoundedCornerShape(24.dp),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -899,7 +940,7 @@ private fun InputBar(
 }
 
 @Composable
-private fun EndDialog(count: Int, total: BigDecimal, onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
+private fun EndDialog(count: Int, total: BigDecimal, pending: Int, onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
     var note by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -907,6 +948,14 @@ private fun EndDialog(count: Int, total: BigDecimal, onConfirm: (String) -> Unit
         text = {
             Column {
                 Text("共 $count 笔，总计 ¥${fmtMoney(total)}")
+                if (pending > 0) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "还有 $pending 项没称，不会计入总计。点\"取消\"回去补数量，或直接结束，之后也可以点那一行补。",
+                        color = PendingColor,
+                        fontSize = 13.sp
+                    )
+                }
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = note,
