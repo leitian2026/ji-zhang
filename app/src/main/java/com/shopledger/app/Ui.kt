@@ -4,26 +4,27 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -48,8 +49,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -66,37 +66,30 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.math.BigDecimal
 
-private const val W_SEQ = 0.45f
-private const val W_NAME = 1.7f
+// 气泡里表格的列宽比例：名称、单价、数量、小计
+private const val W_NAME = 1.9f
 private const val W_PRICE = 1f
-private const val W_QTY = 0.7f
+private const val W_QTY = 0.8f
 private const val W_SUB = 1.2f
-private const val W_CUM = 1.4f
 
-private val HeaderBg = Color(0xFFE3EDE8)
-private val Line = Color(0xFFC5D6CD)
+// 平板上气泡不会无限拉宽
+private val BubbleMaxWidth = 560.dp
 
 /**
- * 按手机屏幕排版：
- * - 宽屏（平板、折叠屏展开）时内容限制在 480dp 宽，居中，和手机一样的版面
- * - 字号按屏幕宽度小幅缩放（基准 360dp），窄屏不挤、宽屏不空
+ * 手机、平板通用：
+ * - 版面撑满整个屏幕（和聊天软件一样，我的气泡靠右、结算气泡靠左）
+ * - 字号随屏幕宽度小幅缩放（基准 360dp，最大约 1.2 倍），平板上字不会显得太小
  * - 系统字体放得很大时封顶，免得表格被撑坏
  */
 @Composable
-fun PhoneFrame(content: @Composable () -> Unit) {
+fun ScaleFrame(content: @Composable () -> Unit) {
     val widthDp = LocalConfiguration.current.screenWidthDp
     val d = LocalDensity.current
-    val scale = (1f + (minOf(widthDp, 480) - 360) / 360f * 0.5f).coerceIn(0.88f, 1.1f)
+    val scale = (1f + (minOf(widthDp, 840) - 360) / 360f * 0.35f).coerceIn(0.9f, 1.2f)
     CompositionLocalProvider(
-        LocalDensity provides Density(d.density, minOf(d.fontScale, 1.15f) * scale)
-    ) {
-        Box(
-            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
-            contentAlignment = Alignment.TopCenter
-        ) {
-            Box(Modifier.widthIn(max = 480.dp).fillMaxHeight()) { content() }
-        }
-    }
+        LocalDensity provides Density(d.density, minOf(d.fontScale, 1.15f) * scale),
+        content = content
+    )
 }
 
 @Composable
@@ -157,12 +150,10 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             TotalBar(ui.currentTotal, ui.currentCount)
-            Box(Modifier.fillMaxWidth().height(1.dp).background(Line))
-            TableHeader()
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(bottom = 8.dp)
+                contentPadding = PaddingValues(vertical = 8.dp)
             ) {
                 if (ui.loaded && ui.items.isEmpty()) {
                     item(key = "empty") {
@@ -172,7 +163,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                         ) {
                             Text(
                                 "在下面输入就会出账\n苹果5　　面条10，2　　5",
-                                color = Color.Gray,
+                                color = Muted,
                                 textAlign = TextAlign.Center
                             )
                         }
@@ -181,8 +172,8 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                 items(ui.items, key = { it.key }) { item ->
                     when (item) {
                         is HeaderItem -> TripHeader(item.label)
-                        is RowItem -> EntryRow(item) { editing = item.entry }
-                        is FooterItem -> TripFooter(
+                        is BatchItem -> MyBubble(item) { editing = it }
+                        is FooterItem -> SysBubble(
                             item = item,
                             onCopy = {
                                 val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -244,12 +235,11 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
 
 @Composable
 private fun TopBar() {
-    Row(
+    Box(
         Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.primary)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .background(Brush.horizontalGradient(listOf(BrandStart, BrandEnd)))
+            .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
         Text(
             "超市记账",
@@ -265,121 +255,41 @@ private fun TotalBar(total: BigDecimal, count: Int) {
     Row(
         Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.primaryContainer)
+            .background(TotalStrip)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
-            Text("当前累计", fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Text("当前累计", fontSize = 12.sp, color = Muted)
             Text(
                 "¥ ${fmtMoney(total)}",
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
+                color = DeepOrange
             )
         }
-        Text("共 $count 笔", color = MaterialTheme.colorScheme.onPrimaryContainer)
+        Text("共 $count 笔", color = Muted)
     }
 }
 
 @Composable
-private fun TableRow(
-    bg: Color,
-    modifier: Modifier = Modifier,
-    content: @Composable RowScope.() -> Unit
-) {
-    Row(
-        modifier
-            .fillMaxWidth()
-            .height(IntrinsicSize.Min)
-            .background(bg)
-            .drawBehind {
-                val w = 1.dp.toPx()
-                drawLine(Line, Offset(0f, size.height - w / 2), Offset(size.width, size.height - w / 2), w)
-                drawLine(Line, Offset(w / 2, 0f), Offset(w / 2, size.height), w)
-            },
-        verticalAlignment = Alignment.CenterVertically,
-        content = content
-    )
-}
-
-@Composable
-private fun RowScope.Cell(
-    text: String,
-    weight: Float,
-    align: TextAlign = TextAlign.End,
-    bold: Boolean = false,
-    color: Color = Color.Unspecified,
-    fontSize: TextUnit = 14.sp,
-    softWrap: Boolean = true
-) {
+private fun Avatar(label: String, color: Color) {
     Box(
-        Modifier
-            .weight(weight)
-            .fillMaxHeight()
-            .drawBehind {
-                val w = 1.dp.toPx()
-                drawLine(Line, Offset(size.width - w / 2, 0f), Offset(size.width - w / 2, size.height), w)
-            }
-            .padding(horizontal = 4.dp, vertical = 9.dp),
-        contentAlignment = when (align) {
-            TextAlign.Start -> Alignment.CenterStart
-            TextAlign.Center -> Alignment.Center
-            else -> Alignment.CenterEnd
-        }
+        Modifier.size(38.dp).background(color, CircleShape),
+        contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = text,
-            textAlign = align,
-            fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
-            color = color,
-            fontSize = fontSize,
-            softWrap = softWrap,
-            maxLines = if (softWrap) Int.MAX_VALUE else 1
-        )
-    }
-}
-
-@Composable
-private fun TableHeader() {
-    TableRow(HeaderBg) {
-        Cell("#", W_SEQ, TextAlign.Center, true, fontSize = 12.sp)
-        Cell("名称", W_NAME, TextAlign.Start, true, fontSize = 12.sp)
-        Cell("单价", W_PRICE, bold = true, fontSize = 12.sp)
-        Cell("数量", W_QTY, bold = true, fontSize = 12.sp)
-        Cell("小计", W_SUB, bold = true, fontSize = 12.sp)
-        Cell("累计", W_CUM, bold = true, fontSize = 12.sp)
-    }
-}
-
-@Composable
-private fun EntryRow(item: RowItem, onClick: () -> Unit) {
-    val e = item.entry
-    val bg = if (item.seq % 2 == 1) Color.White else Color(0xFFF7FAF8)
-    val unnamed = e.name.isBlank()
-    TableRow(bg, Modifier.clickable(enabled = item.editable, onClick = onClick)) {
-        Cell(item.seq.toString(), W_SEQ, TextAlign.Center, color = Color.Gray)
-        Cell(
-            if (unnamed) "未命名" else e.name,
-            W_NAME,
-            TextAlign.Start,
-            color = if (unnamed) Color.Gray else Color.Unspecified
-        )
-        Cell(fmtNum(e.unitPrice), W_PRICE, softWrap = false)
-        Cell(fmtNum(e.quantity), W_QTY, softWrap = false)
-        Cell(fmtMoney(e.subtotal()), W_SUB, softWrap = false)
-        Cell(fmtMoney(item.cumulative), W_CUM, bold = true, color = MaterialTheme.colorScheme.primary, softWrap = false)
+        Text(label, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
 private fun TripHeader(label: String) {
-    Box(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 6.dp), contentAlignment = Alignment.Center) {
-        Surface(shape = RoundedCornerShape(12.dp), color = HeaderBg) {
+    Box(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 4.dp), contentAlignment = Alignment.Center) {
+        Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFFFBE4D0)) {
             Text(
                 label,
                 fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                color = Muted,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
             )
         }
@@ -387,28 +297,146 @@ private fun TripHeader(label: String) {
 }
 
 @Composable
-private fun TripFooter(item: FooterItem, onCopy: () -> Unit, onReopen: () -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.primaryContainer
+private fun HLine() {
+    Box(Modifier.fillMaxWidth().height(1.dp).background(BubbleLine))
+}
+
+@Composable
+private fun RowScope.Txt(
+    text: String,
+    weight: Float,
+    align: TextAlign = TextAlign.End,
+    bold: Boolean = false,
+    color: Color = Color.Unspecified,
+    size: TextUnit = 15.sp,
+    softWrap: Boolean = true
+) {
+    Text(
+        text = text,
+        modifier = Modifier.weight(weight).padding(horizontal = 2.dp),
+        textAlign = align,
+        fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+        color = color,
+        fontSize = size,
+        softWrap = softWrap,
+        maxLines = if (softWrap) Int.MAX_VALUE else 1
+    )
+}
+
+@Composable
+private fun TableHead() {
+    Row(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+        Txt("名称", W_NAME, TextAlign.Start, size = 11.sp, color = Muted)
+        Txt("单价", W_PRICE, size = 11.sp, color = Muted)
+        Txt("数量", W_QTY, size = 11.sp, color = Muted)
+        Txt("小计", W_SUB, size = 11.sp, color = Muted)
+    }
+    HLine()
+}
+
+@Composable
+private fun EntryLine(e: Entry, editable: Boolean, onClick: () -> Unit) {
+    val unnamed = e.name.isBlank()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(enabled = editable, onClick = onClick)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("结算", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Text("共 ${item.count} 笔", fontSize = 12.sp)
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    "¥ ${fmtMoney(item.total)}",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
+        Txt(
+            if (unnamed) "未命名" else e.name,
+            W_NAME,
+            TextAlign.Start,
+            color = if (unnamed) Muted else Color.Unspecified
+        )
+        Txt(fmtNum(e.unitPrice), W_PRICE, softWrap = false)
+        Txt(fmtNum(e.quantity), W_QTY, softWrap = false)
+        Txt(fmtMoney(e.subtotal()), W_SUB, bold = true, softWrap = false)
+    }
+    HLine()
+}
+
+/** 我的气泡：靠右，里面是这一次输入的小表格，下面是累计。点某一行可以修改。 */
+@Composable
+private fun MyBubble(item: BatchItem, onEdit: (Entry) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 12.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.Bottom
+    ) {
+        Surface(
+            modifier = Modifier.weight(1f, fill = false).widthIn(max = BubbleMaxWidth),
+            shape = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp),
+            color = BubbleMine
+        ) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                TableHead()
+                item.entries.forEach { e -> EntryLine(e, item.editable) { onEdit(e) } }
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        fmtTime(item.time),
+                        fontSize = 11.sp,
+                        color = Muted,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (item.entries.size > 1) {
+                        Text("本次 ${fmtMoney(item.batchTotal)}", fontSize = 13.sp, color = Muted)
+                        Spacer(Modifier.width(12.dp))
+                    }
+                    Text(
+                        "累计 ¥${fmtMoney(item.cumulative)}",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = DeepOrange
+                    )
+                }
             }
-            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                TextButton(onClick = onCopy) { Text("复制") }
-                if (item.canReopen) {
-                    TextButton(onClick = onReopen) { Text("继续记这一趟") }
+        }
+        Spacer(Modifier.width(8.dp))
+        Avatar("我", Brand)
+    }
+}
+
+/** 结算气泡：靠左，整趟的明细和总计。 */
+@Composable
+private fun SysBubble(item: FooterItem, onCopy: () -> Unit, onReopen: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 10.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+        horizontalArrangement = Arrangement.Start,
+        verticalAlignment = Alignment.Bottom
+    ) {
+        Avatar("账", SysAvatar)
+        Spacer(Modifier.width(8.dp))
+        Surface(
+            modifier = Modifier.weight(1f, fill = false).widthIn(max = BubbleMaxWidth),
+            shape = RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp),
+            color = Color.White
+        ) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                Text("本趟结算", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp))
+                TableHead()
+                item.entries.forEach { e -> EntryLine(e, editable = false) {} }
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("共 ${item.count} 笔", fontSize = 13.sp, color = Muted, modifier = Modifier.weight(1f))
+                    Text(
+                        "总计 ¥${fmtMoney(item.total)}",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = DeepOrange
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                    TextButton(onClick = onCopy) { Text("复制") }
+                    if (item.canReopen) {
+                        TextButton(onClick = onReopen) { Text("继续记这一趟") }
+                    }
                 }
             }
         }
@@ -424,6 +452,7 @@ private fun InputBar(
     onEnd: () -> Unit
 ) {
     Column(Modifier.fillMaxWidth().background(Color.White)) {
+        HLine()
         if (error != null) {
             Text(
                 error,
@@ -433,9 +462,11 @@ private fun InputBar(
             )
         }
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = onEnd, contentPadding = PaddingValues(horizontal = 14.dp)) {
-                Text("结束")
-            }
+            OutlinedButton(
+                onClick = onEnd,
+                border = BorderStroke(1.dp, Brand),
+                contentPadding = PaddingValues(horizontal = 14.dp)
+            ) { Text("结束") }
             Spacer(Modifier.width(8.dp))
             OutlinedTextField(
                 value = value,
