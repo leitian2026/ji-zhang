@@ -32,7 +32,13 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8：代码压缩、优化、混淆 + 去掉没用到的资源，安装包更小、运行更快
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             signingConfig = signingConfigs.getByName("release")
         }
     }
