@@ -660,6 +660,7 @@ private fun TripCardView(
                 ) {
                     Text(
                         if (item.ended) "本趟结算" else "本趟记账",
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f)
                     )
@@ -684,16 +685,29 @@ private fun TripCardView(
                         Text("共 ${item.count} 笔", fontSize = 13.sp, color = Muted, modifier = Modifier.weight(1f))
                         Text(
                             (if (item.ended) "总计 " else "累计 ") + "¥${fmtMoney(item.total)}",
-                            fontSize = 20.sp,
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             color = DeepOrange
                         )
                     }
                     if (item.ended) {
-                        Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                            TextButton(onClick = onCopy) { Text("复制") }
+                        Row(
+                            horizontalArrangement = Arrangement.End,
+                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
+                        ) {
+                            Text(
+                                "复制",
+                                color = Brand,
+                                fontSize = 14.sp,
+                                modifier = Modifier.clickable(onClick = onCopy).padding(horizontal = 8.dp, vertical = 6.dp)
+                            )
                             if (item.canReopen) {
-                                TextButton(onClick = onReopen) { Text("继续记这一趟") }
+                                Text(
+                                    "继续记这一趟",
+                                    color = Brand,
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.clickable(onClick = onReopen).padding(horizontal = 8.dp, vertical = 6.dp)
+                                )
                             }
                         }
                     }
