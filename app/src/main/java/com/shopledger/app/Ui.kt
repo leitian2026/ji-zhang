@@ -23,6 +23,11 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.util.lerp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -149,32 +154,27 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
         val endChanged = prevEnded != null && lastEnded != prevEnded
         val grew = size > prevSize || ui.currentCount > prevCount || endChanged
         if (grew && size > 0) {
-            if (prevSize == 0) listState.scrollToItem(size - 1)
-            else listState.animateScrollToItem(size - 1)
-            listState.animateScrollBy(100000f)
+            if (prevSize == 0) listState.scrollToItem(0)
+            else listState.animateScrollToItem(0)
         }
         prevSize = size
         prevCount = ui.currentCount
         prevEnded = lastEnded
     }
 
-    // 输入法弹出来后，列表可视区会变矮：只要输入法开着、可视区高度变了（弹出、收起、换键盘高度、
-    // 平板分屏等），就滚到最底，让当前这张表格露在输入法上面，不被挡住。
+    // 列表用"从底往上排"（reverseLayout）：最新的一张表格永远贴在底部，
+    // 输入法弹出、收起时可视区变矮变高，贴底的内容由系统在同一帧里自动跟着走，
+    // 不需要事后再补滚动，所以不会闪、不会跳。
+    // 输入法弹出完成后，如果你原来翻到了上面的旧记录，再平滑回到最新这张。
     // 正在改某一行时，由那一行自己滚到可见位置，这里不动。
     val density = LocalDensity.current
     val imeInsets = WindowInsets.ime
     val imeOpen = imeInsets.getBottom(density) > 0
     val editingNow by rememberUpdatedState(editingId)
-    val itemCount by rememberUpdatedState(ui.items.size)
-    LaunchedEffect(listState) {
-        snapshotFlow {
-            (imeInsets.getBottom(density) > 0) to listState.layoutInfo.viewportSize.height
-        }.collect { (open, _) ->
-            if (open && editingNow == null && itemCount > 0) {
-                delay(120)
-                listState.scrollToItem(itemCount - 1)
-                listState.animateScrollBy(100000f)
-            }
+    LaunchedEffect(imeOpen) {
+        if (imeOpen && editingNow == null) {
+            delay(300)
+            listState.animateScrollToItem(0)
         }
     }
 
@@ -246,6 +246,8 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
             TotalBar(ui.currentTotal, ui.currentCount, compact = imeOpen)
             LazyColumn(
                 state = listState,
+                reverseLayout = true,
+                verticalArrangement = Arrangement.Top,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 contentPadding = PaddingValues(top = 8.dp, bottom = edgeGap())
             ) {
@@ -263,7 +265,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                         }
                     }
                 }
-                items(ui.items, key = { it.key }) { item ->
+                items(ui.items.asReversed(), key = { it.key }) { item ->
                     when (item) {
                         is HeaderItem -> TripHeader(item.label)
                         is TripCard -> TripCardView(
@@ -442,36 +444,46 @@ private fun TickBox(
 
 @Composable
 private fun TotalBar(total: BigDecimal, count: Int, compact: Boolean = false) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(TotalStrip)
-            .padding(horizontal = 16.dp, vertical = if (compact) 4.dp else 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (compact) {
-            // 输入法弹出时压成一行，把空间让给表格
+    // 只有一套布局，用一个 0→1 的进度连续变化：位置、高度、字号都按进度插值，
+    // 没有"换一套内容"的瞬间，所以不会闪。
+    val f by animateFloatAsState(
+        targetValue = if (compact) 1f else 0f,
+        animationSpec = tween(durationMillis = 220),
+        label = "totalBar"
+    )
+    Layout(
+        content = {
             Text("当前累计", fontSize = 12.sp, color = Muted)
-            Spacer(Modifier.width(8.dp))
             Text(
                 "¥ ${fmtMoney(total)}",
-                fontSize = 18.sp,
+                fontSize = lerp(28f, 18f, f).sp,
                 fontWeight = FontWeight.Bold,
                 color = DeepOrange,
-                modifier = Modifier.weight(1f)
+                maxLines = 1
             )
-        } else {
-            Column(Modifier.weight(1f)) {
-                Text("当前累计", fontSize = 12.sp, color = Muted)
-                Text(
-                    "¥ ${fmtMoney(total)}",
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = DeepOrange
-                )
-            }
+            Text("共 $count 笔", color = Muted, maxLines = 1)
+        },
+        modifier = Modifier.fillMaxWidth().background(TotalStrip)
+    ) { measurables, constraints ->
+        val padH = 16.dp.roundToPx()
+        val padV = lerp(10f, 4f, f).dp.roundToPx()
+        val gap = 8.dp.roundToPx()
+        val loose = constraints.copy(minWidth = 0, minHeight = 0)
+        val label = measurables[0].measure(loose)
+        val amount = measurables[1].measure(loose)
+        val cnt = measurables[2].measure(loose)
+        val w = constraints.maxWidth
+        val stackedH = label.height + amount.height
+        val inlineH = maxOf(label.height, amount.height)
+        val h = lerp(stackedH, inlineH, f) + padV * 2
+        layout(w, h) {
+            label.placeRelative(padH, padV + lerp(0, (inlineH - label.height) / 2, f))
+            amount.placeRelative(
+                lerp(padH, padH + label.width + gap, f),
+                padV + lerp(label.height, (inlineH - amount.height) / 2, f)
+            )
+            cnt.placeRelative(w - padH - cnt.width, (h - cnt.height) / 2)
         }
-        Text("共 $count 笔", color = Muted)
     }
 }
 
