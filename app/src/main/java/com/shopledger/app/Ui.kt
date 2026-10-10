@@ -218,7 +218,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp)
+                contentPadding = PaddingValues(top = 8.dp, bottom = 60.dp)
             ) {
                 if (ui.loaded && ui.items.isEmpty()) {
                     item(key = "empty") {
@@ -647,7 +647,7 @@ private fun TripCardView(
             Column(
                 Modifier
                     .combinedClickable(onClick = { if (selecting) onToggle() }, onLongClick = onLongPress)
-                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 Row(
                     Modifier.fillMaxWidth().heightIn(min = 34.dp).padding(start = 6.dp),
@@ -662,7 +662,7 @@ private fun TripCardView(
                         TickBox(checked, onToggle, tint = if (checked) Brand else Color(0xFFB7C2D2))
                     }
                 }
-                Column(Modifier.padding(horizontal = 4.dp)) {
+                Column(Modifier.padding(horizontal = 12.dp)) {
                     LedgerTable(
                         entries = item.entries,
                         editingId = editingId,
