@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -67,6 +69,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -154,6 +158,25 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
         prevEnded = lastEnded
     }
 
+    // 输入法弹出来后，列表可视区会变矮：只要输入法开着、可视区高度变了（弹出、收起、换键盘高度、
+    // 平板分屏等），就滚到最底，让当前这张表格露在输入法上面，不被挡住。
+    // 正在改某一行时，由那一行自己滚到可见位置，这里不动。
+    val density = LocalDensity.current
+    val imeOpen = WindowInsets.ime.getBottom(density) > 0
+    val editingNow by rememberUpdatedState(editingId)
+    val itemCount by rememberUpdatedState(ui.items.size)
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            WindowInsets.ime.getBottom(density) > 0 to listState.layoutInfo.viewportSize.height
+        }.collect { (open, _) ->
+            if (open && editingNow == null && itemCount > 0) {
+                delay(120)
+                listState.scrollToItem(itemCount - 1)
+                listState.animateScrollBy(100000f)
+            }
+        }
+    }
+
     val cards = ui.items.filterIsInstance<TripCard>()
     val validIds = cards.map { it.tripId }.toSet()
     val sel = selected.filter { it in validIds }.toSet()
@@ -219,7 +242,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
         }
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            TotalBar(ui.currentTotal, ui.currentCount)
+            TotalBar(ui.currentTotal, ui.currentCount, compact = imeOpen)
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -417,22 +440,35 @@ private fun TickBox(
 }
 
 @Composable
-private fun TotalBar(total: BigDecimal, count: Int) {
+private fun TotalBar(total: BigDecimal, count: Int, compact: Boolean = false) {
     Row(
         Modifier
             .fillMaxWidth()
             .background(TotalStrip)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = if (compact) 4.dp else 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(Modifier.weight(1f)) {
+        if (compact) {
+            // 输入法弹出时压成一行，把空间让给表格
             Text("当前累计", fontSize = 12.sp, color = Muted)
+            Spacer(Modifier.width(8.dp))
             Text(
                 "¥ ${fmtMoney(total)}",
-                fontSize = 28.sp,
+                fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = DeepOrange
+                color = DeepOrange,
+                modifier = Modifier.weight(1f)
             )
+        } else {
+            Column(Modifier.weight(1f)) {
+                Text("当前累计", fontSize = 12.sp, color = Muted)
+                Text(
+                    "¥ ${fmtMoney(total)}",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = DeepOrange
+                )
+            }
         }
         Text("共 $count 笔", color = Muted)
     }
