@@ -11,6 +11,7 @@ import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -204,6 +205,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
     val density = LocalDensity.current
     val imeInsets = WindowInsets.ime
     val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
     val editingNow by rememberUpdatedState(editingId)
     fun scrollToLatest() {
         if (editingNow == null) scope.launch { glideToLatest() }
@@ -229,6 +231,8 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                 val cur = listState.firstVisibleItemScrollOffset.toFloat()
                 if (cur > want) listState.dispatchRawDelta(want - cur)
             }
+            // 输入法收回去了：输入框也取消焦点，光标不再闪，输入框边框恢复成没选中的样子
+            if (b == 0 && last > 0) focusManager.clearFocus()
             last = b
             if (b > 0) {
                 // 输入法不动了（连续 150ms 没变化）：记住它的最终高度，下次进度更准；
