@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -122,6 +123,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
     var input by rememberSaveable { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var editingId by remember { mutableStateOf<Long?>(null) }
+    var selectMode by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(setOf<Long>()) }
     var pendingDelete by remember { mutableStateOf<List<Long>?>(null) }
     var showEnd by remember { mutableStateOf(false) }
@@ -150,8 +152,12 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
     val cards = ui.items.filterIsInstance<TripCard>()
     val validIds = cards.map { it.tripId }.toSet()
     val sel = selected.filter { it in validIds }.toSet()
-    val selecting = sel.isNotEmpty()
-    BackHandler(enabled = selecting) { selected = emptySet() }
+    val selecting = selectMode
+    fun exitSelect() {
+        selectMode = false
+        selected = emptySet()
+    }
+    BackHandler(enabled = selecting) { exitSelect() }
 
     fun toggle(id: Long) {
         editingId = null
@@ -184,8 +190,8 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                         pendingDelete = validIds.toList()
                     }
                 },
-                onDelete = { pendingDelete = sel.toList() },
-                onCancel = { selected = emptySet() }
+                onDelete = { if (sel.isNotEmpty()) pendingDelete = sel.toList() },
+                onCancel = { exitSelect() }
             )
         },
         bottomBar = {
@@ -212,7 +218,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp)
+                contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp)
             ) {
                 if (ui.loaded && ui.items.isEmpty()) {
                     item(key = "empty") {
@@ -237,7 +243,11 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                             selecting = selecting,
                             editingId = editingId,
                             onToggle = { toggle(item.tripId) },
-                            onLongPress = { pendingDelete = listOf(item.tripId) },
+                            onLongPress = {
+                                editingId = null
+                                selectMode = true
+                                selected = sel + item.tripId
+                            },
                             onRowClick = { e -> if (selecting) toggle(item.tripId) else editingId = e.id },
                             onSave = {
                                 vm.update(it)
@@ -283,6 +293,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                         selected = selected - ids.toSet()
                         editingId = null
                         pendingDelete = null
+                        if (selected.isEmpty()) selectMode = false
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                 ) { Text("删除") }
@@ -347,26 +358,29 @@ private fun TopBar(
                 )
             } else {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 10.dp),
+                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TickBox(allSelected, onSelectAll, tint = Color.White, markColor = Brand)
                     Text(
-                        "全选",
+                        if (count > 0) "已选 $count 个" else "选择表格",
                         color = Color.White,
-                        fontSize = 16.sp,
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable(onClick = onSelectAll).padding(end = 8.dp, top = 8.dp, bottom = 8.dp)
-                    )
-                    Text(
-                        "已选 $count 个",
-                        color = Color.White.copy(alpha = 0.9f),
-                        fontSize = 14.sp,
-                        textAlign = TextAlign.Center,
                         modifier = Modifier.weight(1f)
                     )
-                    TextButton(onClick = onDelete) {
-                        Text("删除", color = Color.White, fontWeight = FontWeight.Bold)
+                    Row(
+                        Modifier.clickable(onClick = onSelectAll),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TickBox(allSelected, onSelectAll, tint = Color.White, markColor = Brand)
+                        Text("全选", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
+                    TextButton(onClick = onDelete, enabled = count > 0) {
+                        Text(
+                            "删除",
+                            color = Color.White.copy(alpha = if (count > 0) 1f else 0.45f),
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                     TextButton(onClick = onCancel) { Text("取消", color = Color.White) }
                 }
@@ -635,13 +649,18 @@ private fun TripCardView(
                     .combinedClickable(onClick = { if (selecting) onToggle() }, onLongClick = onLongPress)
                     .padding(horizontal = 10.dp, vertical = 8.dp)
             ) {
-                Row(Modifier.padding(bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TickBox(checked, onToggle, tint = if (checked) Brand else Color(0xFFB7C2D2))
-                    Spacer(Modifier.width(2.dp))
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 34.dp).padding(start = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
                         if (item.ended) "本趟结算" else "本趟记账",
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
                     )
+                    if (selecting) {
+                        TickBox(checked, onToggle, tint = if (checked) Brand else Color(0xFFB7C2D2))
+                    }
                 }
                 Column(Modifier.padding(horizontal = 4.dp)) {
                     LedgerTable(
@@ -696,7 +715,7 @@ private fun InputBar(
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp)
             )
         }
-        Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(start = 8.dp, end = 8.dp, top = 12.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedButton(
                 onClick = onEnd,
                 border = BorderStroke(1.dp, Brand),
@@ -714,7 +733,7 @@ private fun InputBar(
                     focusedContainerColor = Color.White,
                     unfocusedContainerColor = Color.White,
                     focusedBorderColor = Brand,
-                    unfocusedBorderColor = BubbleLine
+                    unfocusedBorderColor = Color(0xFFA9C9E8)
                 ),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { onSend() })
