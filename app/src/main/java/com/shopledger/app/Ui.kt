@@ -122,10 +122,10 @@ private const val TypingMs = 380
 private val TypingEasing = androidx.compose.animation.core.CubicBezierEasing(0.25f, 0.1f, 0.75f, 0.9f)
 
 // 气泡里表格的列宽比例：名称、单价、数量、小计
-private const val W_NAME = 1.4f
-private const val W_PRICE = 0.9f
-private const val W_QTY = 1.25f
-private const val W_SUB = 1.15f
+private const val W_NAME = 1.5f
+private const val W_PRICE = 1.15f
+private const val W_QTY = 1.35f
+private const val W_SUB = 1.0f
 
 /** "待称"的颜色：和蓝色的金额区分开，一眼看出还有没定的 */
 private val PendingColor = Color(0xFFD9822B)
@@ -344,7 +344,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                "在下面输入就会出账\n苹果5　　面条10，2　　5\n米6.5/斤（称完再补数量）",
+                                "在下面输入就会出账\n苹果5　　面条10，2　　5\n米2.88，斤（称完再补数量）",
                                 color = Color(0xFFB9C1CE),
                                 textAlign = TextAlign.Center
                             )
@@ -591,6 +591,8 @@ private fun RowScope.Txt(
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null
 ) {
+    // 一格放不下时，字号一档档缩小直到放下，不会被截掉；名称这类允许换行的格子不用缩
+    var fs by remember(text, size) { mutableStateOf(size) }
     Text(
         text = text,
         modifier = Modifier
@@ -600,13 +602,16 @@ private fun RowScope.Txt(
                 if (onClick != null) Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
                 else Modifier
             )
-            .padding(horizontal = 8.dp, vertical = 11.dp),
+            .padding(horizontal = 6.dp, vertical = 11.dp),
         textAlign = align,
         fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
         color = color,
-        fontSize = size,
+        fontSize = fs,
         softWrap = softWrap,
-        maxLines = if (softWrap) Int.MAX_VALUE else 1
+        maxLines = if (softWrap) Int.MAX_VALUE else 1,
+        onTextLayout = { r ->
+            if (!softWrap && r.didOverflowWidth && fs.value > 9f) fs = (fs.value - 1f).sp
+        }
     )
 }
 
@@ -638,7 +643,7 @@ private fun EntryLine(e: Entry, onClick: (Int) -> Unit, onLongClick: () -> Unit)
             onLongClick = onLongClick
         )
         Txt(
-            fmtNum(e.unitPrice) + if (e.pending) "/" + e.unit else "",
+            fmtNum(e.unitPrice),
             W_PRICE,
             softWrap = false,
             onClick = { onClick(1) },
@@ -687,7 +692,7 @@ private fun RowScope.CellField(
             }
         }
     }
-    Box(Modifier.weight(weight).padding(horizontal = 4.dp, vertical = 6.dp)) {
+    Box(Modifier.weight(weight).padding(horizontal = 2.dp, vertical = 6.dp)) {
         BasicTextField(
             value = value,
             onValueChange = onChange,
@@ -701,7 +706,7 @@ private fun RowScope.CellField(
                 .fillMaxWidth()
                 .background(Color.White, RoundedCornerShape(8.dp))
                 .border(1.dp, Brand, RoundedCornerShape(8.dp))
-                .padding(horizontal = 8.dp, vertical = 9.dp)
+                .padding(horizontal = 6.dp, vertical = 9.dp)
         )
     }
 }
@@ -985,7 +990,15 @@ private fun InputBar(
                         onInputTouch()
                     }
                 },
-                placeholder = { Text("苹果5　面条10，2　米6.5/斤", color = Color(0xFFB9C1CE)) },
+                placeholder = {
+                    Text(
+                        "苹果5　面条10，2",
+                        color = Color(0xFFB9C1CE),
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                },
                 singleLine = true,
                 shape = RoundedCornerShape(24.dp),
                 colors = OutlinedTextFieldDefaults.colors(
