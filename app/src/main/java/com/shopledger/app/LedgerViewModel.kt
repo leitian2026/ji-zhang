@@ -32,6 +32,7 @@ data class TripCard(
     val total: BigDecimal,
     val count: Int,
     val ended: Boolean,
+    val pendingCount: Int,
     val text: String,
     val canReopen: Boolean
 ) : Item {
@@ -42,6 +43,7 @@ data class UiState(
     val items: List<Item> = emptyList(),
     val currentTotal: BigDecimal = BigDecimal.ZERO.setScale(2),
     val currentCount: Int = 0,
+    val currentPending: Int = 0,
     val loaded: Boolean = false
 )
 
@@ -63,9 +65,15 @@ private fun settlementText(label: String, entries: List<Entry>, total: BigDecima
     val sb = StringBuilder("【$label】\n")
     for (e in entries) {
         val n = e.name.ifBlank { "未命名" }
-        sb.append("$n  ${fmtNum(e.unitPrice)} × ${fmtQty(e)} = ${fmtMoney(e.subtotal())}\n")
+        if (e.pending) {
+            sb.append("$n  ${fmtNum(e.unitPrice)}/${e.unit} × 待称 = 待定\n")
+        } else {
+            sb.append("$n  ${fmtNum(e.unitPrice)} × ${fmtQty(e)} = ${fmtMoney(e.subtotal())}\n")
+        }
     }
+    val pend = entries.count { it.pending }
     sb.append("共${entries.size}笔，总计 ${fmtMoney(total)}")
+    if (pend > 0) sb.append("（另有 $pend 项待称，未计入）")
     return sb.toString()
 }
 
@@ -76,6 +84,7 @@ private fun buildState(trips: List<Trip>, entries: List<Entry>): UiState {
     val items = ArrayList<Item>()
     var curTotal = BigDecimal.ZERO.setScale(2)
     var curCount = 0
+    var curPending = 0
 
     shown.forEachIndexed { idx, trip ->
         val es = byTrip.getValue(trip.id)
@@ -84,6 +93,7 @@ private fun buildState(trips: List<Trip>, entries: List<Entry>): UiState {
         items.add(HeaderItem(label, trip.id))
         var cum = BigDecimal.ZERO.setScale(2)
         for (e in es) cum = cum.add(e.subtotal())
+        val pend = es.count { it.pending }
         items.add(
             TripCard(
                 tripId = trip.id,
@@ -91,6 +101,7 @@ private fun buildState(trips: List<Trip>, entries: List<Entry>): UiState {
                 total = cum,
                 count = es.size,
                 ended = ended,
+                pendingCount = pend,
                 text = settlementText(label, es, cum),
                 canReopen = ended && !hasActive && idx == shown.lastIndex
             )
@@ -98,9 +109,10 @@ private fun buildState(trips: List<Trip>, entries: List<Entry>): UiState {
         if (!ended) {
             curTotal = cum
             curCount = es.size
+            curPending = pend
         }
     }
-    return UiState(items, curTotal, curCount, true)
+    return UiState(items, curTotal, curCount, curPending, true)
 }
 
 private fun sameDay(a: Long, b: Long): Boolean {
