@@ -464,7 +464,7 @@ private fun TopBar(
             .statusBarsPadding()
     ) {
         // 固定高度：里面的内容用 fillMaxSize，外层必须有确定的高度，不能用 heightIn(min)，否则会撑满整个屏幕
-        Box(Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.CenterStart) {
+        Box(Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.CenterStart) {
             Crossfade(
                 targetState = selecting,
                 animationSpec = tween(320),
@@ -488,21 +488,34 @@ private fun TopBar(
                         softWrap = false
                     )
                     Spacer(Modifier.weight(1f))
-                    Column(horizontalAlignment = Alignment.End) {
+Row {
+                        // 一行：小字"当前累计"、大字金额、小字"共 N 笔"，文字底边对齐
                         Text(
-                            "当前累计 · 共 $entryCount 笔",
+                            "当前累计",
                             color = Color.White.copy(alpha = 0.85f),
                             fontSize = 12.sp,
                             maxLines = 1,
-                            softWrap = false
+                            softWrap = false,
+                            modifier = Modifier.alignByBaseline()
                         )
+                        Spacer(Modifier.width(6.dp))
                         Text(
                             "¥ ${fmtMoney(total)}",
                             color = Color.White,
                             fontSize = 28.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
-                            softWrap = false
+                            softWrap = false,
+                            modifier = Modifier.alignByBaseline()
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "共 $entryCount 笔",
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.alignByBaseline()
                         )
                     }
                 }
