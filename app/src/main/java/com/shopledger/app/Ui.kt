@@ -162,12 +162,13 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
     // 平板分屏等），就滚到最底，让当前这张表格露在输入法上面，不被挡住。
     // 正在改某一行时，由那一行自己滚到可见位置，这里不动。
     val density = LocalDensity.current
-    val imeOpen = WindowInsets.ime.getBottom(density) > 0
+    val imeInsets = WindowInsets.ime
+    val imeOpen = imeInsets.getBottom(density) > 0
     val editingNow by rememberUpdatedState(editingId)
     val itemCount by rememberUpdatedState(ui.items.size)
     LaunchedEffect(listState) {
         snapshotFlow {
-            WindowInsets.ime.getBottom(density) > 0 to listState.layoutInfo.viewportSize.height
+            (imeInsets.getBottom(density) > 0) to listState.layoutInfo.viewportSize.height
         }.collect { (open, _) ->
             if (open && editingNow == null && itemCount > 0) {
                 delay(120)
