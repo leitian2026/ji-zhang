@@ -463,7 +463,8 @@ private fun TopBar(
             .background(Brush.horizontalGradient(listOf(BrandStart, BrandEnd)))
             .statusBarsPadding()
     ) {
-        Box(Modifier.fillMaxWidth().heightIn(min = 64.dp), contentAlignment = Alignment.CenterStart) {
+        // 固定高度：里面的内容用 fillMaxSize，外层必须有确定的高度，不能用 heightIn(min)，否则会撑满整个屏幕
+        Box(Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.CenterStart) {
             Crossfade(
                 targetState = selecting,
                 animationSpec = tween(320),
