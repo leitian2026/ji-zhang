@@ -246,12 +246,6 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
             }
         }
     }
-    // 顶端累计条的"压扁进度"：0＝没有输入法，1＝输入法升到 160dp 以上
-    val imeThresholdPx = with(density) { 160.dp.toPx() }
-    val imeFraction: () -> Float = {
-        (imeInsets.getBottom(density) / imeThresholdPx).coerceIn(0f, 1f)
-    }
-
     val cards = ui.items.filterIsInstance<TripCard>()
     val validIds = cards.map { it.tripId }.toSet()
     val sel = selected.filter { it in validIds }.toSet()
@@ -282,6 +276,8 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopBar(
+                total = ui.currentTotal,
+                entryCount = ui.currentCount,
                 selecting = selecting,
                 count = sel.size,
                 allSelected = cards.isNotEmpty() && sel.size == cards.size,
@@ -322,7 +318,6 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
         }
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            TotalBar(ui.currentTotal, ui.currentCount, imeFraction)
             LazyColumn(
                 state = listState,
                 reverseLayout = true,
@@ -453,6 +448,8 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
 
 @Composable
 private fun TopBar(
+    total: BigDecimal,
+    entryCount: Int,
     selecting: Boolean,
     count: Int,
     allSelected: Boolean,
@@ -466,7 +463,7 @@ private fun TopBar(
             .background(Brush.horizontalGradient(listOf(BrandStart, BrandEnd)))
             .statusBarsPadding()
     ) {
-        Box(Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.CenterStart) {
+        Box(Modifier.fillMaxWidth().heightIn(min = 64.dp), contentAlignment = Alignment.CenterStart) {
             Crossfade(
                 targetState = selecting,
                 animationSpec = tween(320),
@@ -475,13 +472,39 @@ private fun TopBar(
             ) { sel ->
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
             if (!sel) {
-                Text(
-                    "超市记账",
-                    color = Color.White,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
+                // 标题和"当前累计"合并在同一条蓝色顶栏里：左边标题，右边金额。
+                // 金额字号不变（28sp），只是去掉了下面单独的一整条，省出一大块屏幕。
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "超市记账",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            "当前累计 · 共 $entryCount 笔",
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                        Text(
+                            "¥ ${fmtMoney(total)}",
+                            color = Color.White,
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
             } else {
                 Row(
                     Modifier.fillMaxWidth().padding(start = 16.dp, end = 6.dp),
@@ -535,56 +558,6 @@ private fun TickBox(
             contentAlignment = Alignment.Center
         ) {
             if (checked) Text("✓", color = markColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-@Composable
-private fun TotalBar(total: BigDecimal, count: Int, progress: () -> Float) {
-    // 只有一套布局，进度 0→1 连续变化：位置、高度、字号（用缩放）都按进度插值。
-    // 进度只在测量/绘制阶段读取，动画期间不会重组界面，每一帧的工作量很小，不容易掉帧。
-    val endScale = 18f / 28f
-    Layout(
-        content = {
-            Text("当前累计", fontSize = 12.sp, color = Muted)
-            Text(
-                "¥ ${fmtMoney(total)}",
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-                color = DeepOrange,
-                maxLines = 1,
-                modifier = Modifier.graphicsLayer {
-                    val sc = lerp(1f, endScale, progress())
-                    scaleX = sc
-                    scaleY = sc
-                    transformOrigin = TransformOrigin(0f, 0f)
-                }
-            )
-            Text("共 $count 笔", color = Muted, maxLines = 1)
-        },
-        modifier = Modifier.fillMaxWidth().background(TotalStrip)
-    ) { measurables, constraints ->
-        val f = progress()
-        val padH = 16.dp.roundToPx()
-        val padV = lerp(10f, 4f, f).dp.roundToPx()
-        val gap = 8.dp.roundToPx()
-        val loose = constraints.copy(minWidth = 0, minHeight = 0)
-        val label = measurables[0].measure(loose)
-        val amount = measurables[1].measure(loose)
-        val cnt = measurables[2].measure(loose)
-        val sc = lerp(1f, endScale, f)
-        val amountH = (amount.height * sc).toInt()
-        val w = constraints.maxWidth
-        val stackedH = label.height + amountH
-        val inlineH = maxOf(label.height, amountH)
-        val h = lerp(stackedH, inlineH, f) + padV * 2
-        layout(w, h) {
-            label.placeRelative(padH, padV + lerp(0, (inlineH - label.height) / 2, f))
-            amount.placeRelative(
-                lerp(padH, padH + label.width + gap, f),
-                padV + lerp(label.height, (inlineH - amountH) / 2, f)
-            )
-            cnt.placeRelative(w - padH - cnt.width, (h - cnt.height) / 2)
         }
     }
 }
