@@ -25,26 +25,17 @@ data class HeaderItem(val label: String, val tripId: Long) : Item {
     override val key: String get() = "h$tripId"
 }
 
-/** 一次输入（可能含多笔）= 一个气泡 */
-data class BatchItem(
-    val entries: List<Entry>,
-    val batchTotal: BigDecimal,
-    val cumulative: BigDecimal,
-    val time: Long,
-    val editable: Boolean
-) : Item {
-    override val key: String get() = "b${entries.first().id}"
-}
-
-data class FooterItem(
+/** 一趟 = 一个白色卡片：没结束时是记账表，结束后同一张卡片变成结算 */
+data class TripCard(
     val tripId: Long,
     val entries: List<Entry>,
     val total: BigDecimal,
     val count: Int,
+    val ended: Boolean,
     val text: String,
     val canReopen: Boolean
 ) : Item {
-    override val key: String get() = "f$tripId"
+    override val key: String get() = "t$tripId"
 }
 
 data class UiState(
@@ -89,21 +80,19 @@ private fun buildState(trips: List<Trip>, entries: List<Entry>): UiState {
         val label = headerLabel(idx + 1, trip)
         items.add(HeaderItem(label, trip.id))
         var cum = BigDecimal.ZERO.setScale(2)
-        // 一趟只有一个气泡、一张表：没结束之前记的所有东西都在一起
         for (e in es) cum = cum.add(e.subtotal())
-        items.add(BatchItem(es, cum, cum, es.last().createdAt, !ended))
-        if (ended) {
-            items.add(
-                FooterItem(
-                    tripId = trip.id,
-                    entries = es,
-                    total = cum,
-                    count = es.size,
-                    text = settlementText(label, es, cum),
-                    canReopen = !hasActive && idx == shown.lastIndex
-                )
+        items.add(
+            TripCard(
+                tripId = trip.id,
+                entries = es,
+                total = cum,
+                count = es.size,
+                ended = ended,
+                text = settlementText(label, es, cum),
+                canReopen = ended && !hasActive && idx == shown.lastIndex
             )
-        } else {
+        )
+        if (!ended) {
             curTotal = cum
             curCount = es.size
         }
