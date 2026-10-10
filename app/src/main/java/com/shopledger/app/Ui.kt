@@ -473,8 +473,7 @@ private fun TopBar(
             ) { sel ->
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
             if (!sel) {
-                // 标题和"当前累计"合并在同一条蓝色顶栏里：左边标题，右边金额。
-                // 金额字号不变（28sp），只是去掉了下面单独的一整条，省出一大块屏幕。
+                // 顶栏只放标题；累计金额在每张表格里已经有了，不再重复。
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -487,37 +486,6 @@ private fun TopBar(
                         maxLines = 1,
                         softWrap = false
                     )
-                    Spacer(Modifier.weight(1f))
-Row {
-                        // 一行：小字"当前累计"、大字金额、小字"共 N 笔"，文字底边对齐
-                        Text(
-                            "当前累计",
-                            color = Color.White.copy(alpha = 0.85f),
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            softWrap = false,
-                            modifier = Modifier.alignByBaseline()
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            "¥ ${fmtMoney(total)}",
-                            color = Color.White,
-                            fontSize = 28.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            softWrap = false,
-                            modifier = Modifier.alignByBaseline()
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "共 $entryCount 笔",
-                            color = Color.White.copy(alpha = 0.85f),
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            softWrap = false,
-                            modifier = Modifier.alignByBaseline()
-                        )
-                    }
                 }
             } else {
                 Row(
@@ -804,6 +772,27 @@ private fun TripCardView(
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f)
                     )
+                    if (item.ended) {
+                        // 长按照样交给整张卡片的长按选中，不被这两个按钮吃掉
+                        if (item.canReopen) {
+                            Text(
+                                "继续记这一趟",
+                                color = Brand,
+                                fontSize = 14.sp,
+                                modifier = Modifier
+                                    .combinedClickable(onClick = onReopen, onLongClick = onLongPress)
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            )
+                        }
+                        Text(
+                            "复制",
+                            color = Brand,
+                            fontSize = 14.sp,
+                            modifier = Modifier
+                                .combinedClickable(onClick = onCopy, onLongClick = onLongPress)
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        )
+                    }
                     if (selecting) {
                         TickBox(checked, onToggle, tint = if (checked) Brand else Color(0xFFB7C2D2))
                     }
@@ -822,34 +811,29 @@ private fun TripCardView(
                         Modifier.fillMaxWidth().padding(top = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("共 ${item.count} 笔", fontSize = 13.sp, color = Muted, modifier = Modifier.weight(1f))
                         Text(
-                            (if (item.ended) "总计 " else "累计 ") + "¥${fmtMoney(item.total)}",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = DeepOrange
+                            "共 ${item.count} 笔",
+                            fontSize = 13.sp,
+                            color = Muted,
+                            modifier = Modifier.weight(1f).alignByBaseline()
                         )
-                    }
-                    if (item.ended) {
-                        Row(
-                            horizontalArrangement = Arrangement.End,
-                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
-                        ) {
-                            Text(
-                                "复制",
-                                color = Brand,
-                                fontSize = 14.sp,
-                                modifier = Modifier.clickable(onClick = onCopy).padding(horizontal = 8.dp, vertical = 6.dp)
-                            )
-                            if (item.canReopen) {
-                                Text(
-                                    "继续记这一趟",
-                                    color = Brand,
-                                    fontSize = 14.sp,
-                                    modifier = Modifier.clickable(onClick = onReopen).padding(horizontal = 8.dp, vertical = 6.dp)
-                                )
-                            }
-                        }
+                        Text(
+                            if (item.ended) "总计 " else "累计 ",
+                            fontSize = 12.sp,
+                            color = DeepOrange,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.alignByBaseline()
+                        )
+                        Text(
+                            "¥ ${fmtMoney(item.total)}",
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = DeepOrange,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.alignByBaseline()
+                        )
                     }
                 }
             }
