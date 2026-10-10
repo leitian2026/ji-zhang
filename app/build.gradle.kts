@@ -1,3 +1,6 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -15,7 +18,7 @@ android {
         targetSdk = 34
         // versionCode 取"自 2026-01-01 起的秒数"，每次构建一定比上次大，才能覆盖安装
         versionCode = ((System.currentTimeMillis() / 1000) - 1767225600L).toInt()
-        versionName = "1.0." + java.text.SimpleDateFormat("yyMMdd.HHmm").format(java.util.Date())
+        versionName = "1.0." + SimpleDateFormat("yyMMdd.HHmm").format(Date())
     }
 
     signingConfigs {
