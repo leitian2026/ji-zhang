@@ -13,6 +13,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
@@ -670,6 +671,19 @@ private fun RowScope.CellField(
     modifier: Modifier = Modifier,
     onDone: () -> Unit = {}
 ) {
+    // 这一格刚拿到光标时（点了别的格子、或用输入法的"下一项"跳过来），内容全选。
+    // 点击会在拿到焦点之后再把光标摆到手指的位置，所以稍等一下再全选，才不会被它盖掉。
+    var focused by remember { mutableStateOf(false) }
+    val current by rememberUpdatedState(value)
+    LaunchedEffect(focused) {
+        if (focused) {
+            delay(80)
+            val v = current
+            if (v.selection != TextRange(0, v.text.length)) {
+                onChange(v.copy(selection = TextRange(0, v.text.length)))
+            }
+        }
+    }
     Box(Modifier.weight(weight).padding(horizontal = 4.dp, vertical = 6.dp)) {
         BasicTextField(
             value = value,
@@ -680,6 +694,7 @@ private fun RowScope.CellField(
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
             keyboardActions = KeyboardActions(onDone = { onDone() }),
             modifier = modifier
+                .onFocusChanged { focused = it.isFocused }
                 .fillMaxWidth()
                 .background(Color.White, RoundedCornerShape(8.dp))
                 .border(1.dp, Brand, RoundedCornerShape(8.dp))
