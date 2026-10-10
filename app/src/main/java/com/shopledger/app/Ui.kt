@@ -828,7 +828,7 @@ private fun TripCardView(
                         Text(
                             "¥ ${fmtMoney(item.total)}",
                             fontSize = 28.sp,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.Black,
                             color = DeepOrange,
                             maxLines = 1,
                             softWrap = false,
