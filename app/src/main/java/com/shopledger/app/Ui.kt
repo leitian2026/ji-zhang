@@ -29,11 +29,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.util.lerp
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -102,6 +107,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.math.BigDecimal
+
+/** 输入法弹出/收起时，累计条与滚动的时长：越长，每一帧走的距离越小 */
+private const val TypingMs = 380
 
 // 气泡里表格的列宽比例：名称、支出、数量、小计
 private const val W_NAME = 1.4f
@@ -179,19 +187,13 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
     fun scrollToLatest() {
         if (editingNow == null) scope.launch { listState.animateScrollToItem(0) }
     }
-    // "要打字了"：点输入框的那一刻就置 true，滚回当前表格和顶端累计条的变化同时开始，一起动；
-    // 输入法开始往下收的第一帧就置 false，累计条跟着一起变回来（不等输入法完全消失）。
+    // "要打字了"：点输入框的那一刻置 true；输入法开始往下收的第一帧置 false。
     var imeWanted by remember { mutableStateOf(false) }
     LaunchedEffect(listState) {
         var last = 0
         snapshotFlow { imeInsets.getBottom(density) }.collect { b ->
-            if (b > last && !imeWanted) {
-                // 兜底：输入法不是点输入框弹出的，一出现也立刻动
-                imeWanted = true
-                scrollToLatest()
-            } else if (b < last) {
-                imeWanted = false
-            }
+            if (b > last && !imeWanted) imeWanted = true   // 兜底：输入法不是点输入框弹出的
+            else if (b < last) imeWanted = false
             last = b
         }
     }
@@ -200,6 +202,26 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
         if (imeWanted) {
             delay(800)
             if (imeInsets.getBottom(density) == 0) imeWanted = false
+        }
+    }
+    // 只有一条时间线 typing（0→1）：顶端累计条的变化、滚回当前表格，都由它在每一帧里算出来，
+    // 两件事用同一条曲线、同一个起点，所以步调一致，不会一个快一个慢。
+    val typing = remember { Animatable(0f) }
+    LaunchedEffect(imeWanted) {
+        if (imeWanted) {
+            val atNearBottom = listState.firstVisibleItemIndex == 0
+            val d0 = if (atNearBottom) listState.firstVisibleItemScrollOffset.toFloat() else 0f
+            // 翻得很远（不在最新这一张里）：交给系统滚动，少见的情况
+            if (!atNearBottom && editingNow == null) launch { listState.animateScrollToItem(0) }
+            typing.animateTo(1f, tween(durationMillis = TypingMs, easing = FastOutSlowInEasing)) {
+                if (d0 > 0f && editingNow == null) {
+                    val want = d0 * (1f - value)
+                    val cur = listState.firstVisibleItemScrollOffset.toFloat()
+                    if (cur > want) listState.dispatchRawDelta(want - cur)
+                }
+            }
+        } else {
+            typing.animateTo(0f, tween(durationMillis = TypingMs, easing = FastOutSlowInEasing))
         }
     }
 
@@ -258,8 +280,8 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                 },
                 onSend = { submit() },
                 onInputTouch = {
-                    imeWanted = true
-                    scrollToLatest()
+                    // 输入法已经开着、只是你翻到了上面：点输入框回到最新这一张
+                    if (imeWanted) scrollToLatest() else imeWanted = true
                 },
                 onEnd = {
                     if (ui.currentCount == 0) {
@@ -272,7 +294,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
         }
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            TotalBar(ui.currentTotal, ui.currentCount, compact = imeWanted)
+            TotalBar(ui.currentTotal, ui.currentCount) { typing.value }
             LazyColumn(
                 state = listState,
                 reverseLayout = true,
@@ -295,6 +317,14 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                     }
                 }
                 items(ui.items.asReversed(), key = { it.key }) { item ->
+                    // 新增 / 删除 / 结束后卡片的出现、消失、挪位都带过渡，不会一下子跳
+                    Box(
+                        Modifier.animateItem(
+                            fadeInSpec = tween(300),
+                            placementSpec = tween(320, easing = FastOutSlowInEasing),
+                            fadeOutSpec = tween(220)
+                        )
+                    ) {
                     when (item) {
                         is HeaderItem -> TripHeader(item.label)
                         is TripCard -> TripCardView(
@@ -325,7 +355,8 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                             },
                             onReopen = { vm.reopen(item.tripId) }
                         )
-                    }
+                                        }
+                }
                 }
             }
         }
@@ -408,7 +439,14 @@ private fun TopBar(
             .statusBarsPadding()
     ) {
         Box(Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.CenterStart) {
-            if (!selecting) {
+            Crossfade(
+                targetState = selecting,
+                animationSpec = tween(220),
+                label = "topBar",
+                modifier = Modifier.fillMaxSize()
+            ) { sel ->
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+            if (!sel) {
                 Text(
                     "超市记账",
                     color = Color.White,
@@ -445,6 +483,8 @@ private fun TopBar(
                     TextButton(onClick = onCancel) { Text("取消", color = Color.White) }
                 }
             }
+            }
+            }
         }
     }
 }
@@ -472,28 +512,31 @@ private fun TickBox(
 }
 
 @Composable
-private fun TotalBar(total: BigDecimal, count: Int, compact: Boolean) {
-    // 只有一套布局，用一个 0→1 的进度连续变化：位置、高度、字号都按进度插值，
-    // 进度由"要打字了"的信号触发，和滚回当前表格同时开始。
-    val f by animateFloatAsState(
-        targetValue = if (compact) 1f else 0f,
-        animationSpec = tween(durationMillis = 220),
-        label = "totalBar"
-    )
+private fun TotalBar(total: BigDecimal, count: Int, progress: () -> Float) {
+    // 只有一套布局，进度 0→1 连续变化：位置、高度、字号（用缩放）都按进度插值。
+    // 进度只在测量/绘制阶段读取，动画期间不会重组界面，每一帧的工作量很小，不容易掉帧。
+    val endScale = 18f / 28f
     Layout(
         content = {
             Text("当前累计", fontSize = 12.sp, color = Muted)
             Text(
                 "¥ ${fmtMoney(total)}",
-                fontSize = lerp(28f, 18f, f).sp,
+                fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
                 color = DeepOrange,
-                maxLines = 1
+                maxLines = 1,
+                modifier = Modifier.graphicsLayer {
+                    val sc = lerp(1f, endScale, progress())
+                    scaleX = sc
+                    scaleY = sc
+                    transformOrigin = TransformOrigin(0f, 0f)
+                }
             )
             Text("共 $count 笔", color = Muted, maxLines = 1)
         },
         modifier = Modifier.fillMaxWidth().background(TotalStrip)
     ) { measurables, constraints ->
+        val f = progress()
         val padH = 16.dp.roundToPx()
         val padV = lerp(10f, 4f, f).dp.roundToPx()
         val gap = 8.dp.roundToPx()
@@ -501,15 +544,17 @@ private fun TotalBar(total: BigDecimal, count: Int, compact: Boolean) {
         val label = measurables[0].measure(loose)
         val amount = measurables[1].measure(loose)
         val cnt = measurables[2].measure(loose)
+        val sc = lerp(1f, endScale, f)
+        val amountH = (amount.height * sc).toInt()
         val w = constraints.maxWidth
-        val stackedH = label.height + amount.height
-        val inlineH = maxOf(label.height, amount.height)
+        val stackedH = label.height + amountH
+        val inlineH = maxOf(label.height, amountH)
         val h = lerp(stackedH, inlineH, f) + padV * 2
         layout(w, h) {
             label.placeRelative(padH, padV + lerp(0, (inlineH - label.height) / 2, f))
             amount.placeRelative(
                 lerp(padH, padH + label.width + gap, f),
-                padV + lerp(label.height, (inlineH - amount.height) / 2, f)
+                padV + lerp(label.height, (inlineH - amountH) / 2, f)
             )
             cnt.placeRelative(w - padH - cnt.width, (h - cnt.height) / 2)
         }
@@ -729,6 +774,8 @@ private fun TripCardView(
         ) {
             Column(
                 Modifier
+                    // 加一行、改某一行（展开）、删一行、结束变结算：高度都是平滑变化，不是一下子跳
+                    .animateContentSize(tween(280, easing = FastOutSlowInEasing))
                     .combinedClickable(onClick = { if (selecting) onToggle() }, onLongClick = onLongPress)
                     .padding(horizontal = 10.dp, vertical = 8.dp)
             ) {
