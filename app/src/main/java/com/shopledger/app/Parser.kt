@@ -67,7 +67,7 @@ private fun parseLine(raw: String): ParseResult {
     line = TIMES.replace(line, ",")
     val ms = NUM.findAll(line).toList()
     if (ms.isEmpty()) return ParseResult.Err("没有找到金额：$raw")
-    if (ms.size > 2) return ParseResult.Err("一笔最多两个数字（单价、数量）：$raw")
+    if (ms.size > 2) return ParseResult.Err("一笔最多两个数字（支出、数量）：$raw")
 
     val price = BigDecimal(ms[0].value)
     val qty = if (ms.size == 2) BigDecimal(ms[1].value) else BigDecimal.ONE
