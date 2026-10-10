@@ -14,7 +14,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.TextFieldValue
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -161,6 +163,8 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
     var input by rememberSaveable { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var editingId by remember { mutableStateOf<Long?>(null) }
+    // 点的是哪一格：0 名称、1 单价、2 数量（点小计也算数量）。展开后光标就落在那一格，并且全选
+    var editingField by remember { mutableIntStateOf(0) }
     var selectMode by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(setOf<Long>()) }
     var pendingDelete by remember { mutableStateOf<List<Long>?>(null) }
@@ -359,13 +363,20 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                             checked = item.tripId in sel,
                             selecting = selecting,
                             editingId = editingId,
+                            editingField = editingField,
                             onToggle = { toggle(item.tripId) },
                             onLongPress = {
                                 editingId = null
                                 selectMode = true
                                 selected = sel + item.tripId
                             },
-                            onRowClick = { e -> if (selecting) toggle(item.tripId) else editingId = e.id },
+                            onRowClick = { e, field ->
+                                if (selecting) toggle(item.tripId)
+                                else {
+                                    editingField = field
+                                    editingId = e.id
+                                }
+                            },
                             onSave = {
                                 vm.update(it)
                                 editingId = null
@@ -572,11 +583,20 @@ private fun RowScope.Txt(
     bold: Boolean = false,
     color: Color = Color.Unspecified,
     size: TextUnit = 15.sp,
-    softWrap: Boolean = true
+    softWrap: Boolean = true,
+    onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null
 ) {
     Text(
         text = text,
-        modifier = Modifier.weight(weight).padding(horizontal = 8.dp, vertical = 11.dp),
+        modifier = Modifier
+            .weight(weight)
+            // 每一格自己接点击：点哪一格，就从哪一格开始改
+            .then(
+                if (onClick != null) Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                else Modifier
+            )
+            .padding(horizontal = 8.dp, vertical = 11.dp),
         textAlign = align,
         fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
         color = color,
@@ -597,38 +617,52 @@ private fun TableHead() {
 }
 
 @Composable
-private fun EntryLine(e: Entry, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun EntryLine(e: Entry, onClick: (Int) -> Unit, onLongClick: () -> Unit) {
     val unnamed = e.name.isBlank()
     Row(
         Modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            .combinedClickable(onClick = { onClick(0) }, onLongClick = onLongClick),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Txt(
             if (unnamed) "未命名" else e.name,
             W_NAME,
             TextAlign.Start,
-            color = if (unnamed) Muted else Color.Unspecified
+            color = if (unnamed) Muted else Color.Unspecified,
+            onClick = { onClick(0) },
+            onLongClick = onLongClick
         )
         Txt(
             fmtNum(e.unitPrice) + if (e.pending) "/" + e.unit else "",
             W_PRICE,
-            softWrap = false
+            softWrap = false,
+            onClick = { onClick(1) },
+            onLongClick = onLongClick
         )
-        Txt(fmtQty(e), W_QTY, softWrap = false, color = if (e.pending) PendingColor else Color.Unspecified)
+        Txt(
+            fmtQty(e),
+            W_QTY,
+            softWrap = false,
+            color = if (e.pending) PendingColor else Color.Unspecified,
+            onClick = { onClick(2) },
+            onLongClick = onLongClick
+        )
         if (e.pending) {
-            Txt("待定", W_SUB, softWrap = false, color = Muted)
+            Txt("待定", W_SUB, softWrap = false, color = Muted, onClick = { onClick(2) }, onLongClick = onLongClick)
         } else {
-            Txt(fmtMoney(e.subtotal()), W_SUB, bold = true, color = DeepOrange, softWrap = false)
+            Txt(
+                fmtMoney(e.subtotal()), W_SUB, bold = true, color = DeepOrange, softWrap = false,
+                onClick = { onClick(2) }, onLongClick = onLongClick
+            )
         }
     }
 }
 
 @Composable
 private fun RowScope.CellField(
-    value: String,
-    onChange: (String) -> Unit,
+    value: TextFieldValue,
+    onChange: (TextFieldValue) -> Unit,
     weight: Float,
     align: TextAlign,
     keyboardType: KeyboardType,
@@ -656,22 +690,27 @@ private fun RowScope.CellField(
 
 /** 表格里的一行变成可以直接改：名称、单价、数量（可带单位，如 2斤、1把；只写单位如"斤"表示待称） */
 @Composable
-private fun EditRow(e: Entry, onSave: (Entry) -> Unit, onDelete: () -> Unit, onCancel: () -> Unit) {
-    var name by remember(e.id) { mutableStateOf(e.name) }
-    var price by remember(e.id) { mutableStateOf(fmtNum(e.unitPrice)) }
+private fun EditRow(e: Entry, focusField: Int, onSave: (Entry) -> Unit, onDelete: () -> Unit, onCancel: () -> Unit) {
+    // 点哪一格，那一格的内容一开始就是全选的：直接打字就是替换，不用自己选、自己删
+    fun cellValue(text: String, idx: Int) =
+        TextFieldValue(text, if (idx == focusField) TextRange(0, text.length) else TextRange(text.length))
+    var name by remember(e.id) { mutableStateOf(cellValue(e.name, 0)) }
+    var price by remember(e.id) { mutableStateOf(cellValue(fmtNum(e.unitPrice), 1)) }
     // 待称的行：数量格里放单位（如"斤"），称完把它改成 2.3斤 / 2.3 就行
-    var qty by remember(e.id) { mutableStateOf(if (e.pending) e.unit else fmtQty(e)) }
+    var qty by remember(e.id) { mutableStateOf(cellValue(if (e.pending) e.unit else fmtQty(e), 2)) }
     var err by remember(e.id) { mutableStateOf<String?>(null) }
-    val focus = remember { FocusRequester() }
+    val focusName = remember { FocusRequester() }
+    val focusPrice = remember { FocusRequester() }
+    val focusQty = remember { FocusRequester() }
     val requester = remember { BringIntoViewRequester() }
 
     fun save() {
-        val p = parseNum(price)
+        val p = parseNum(price.text)
         if (p == null) {
             err = "单价要填数字"
             return
         }
-        val qi = parseQtyInput(qty)
+        val qi = parseQtyInput(qty.text)
         // 称完没写单位时，沿用这一行原来的单位
         val unit = qi.unit.ifBlank { if (e.pending) e.unit else "" }
         val n = qi.number
@@ -685,7 +724,7 @@ private fun EditRow(e: Entry, onSave: (Entry) -> Unit, onDelete: () -> Unit, onC
                 err = msg
                 return
             }
-            onSave(e.copy(name = name.trim().take(20), unitPrice = p, quantity = BigDecimal.ONE, unit = unit, pending = true))
+            onSave(e.copy(name = name.text.trim().take(20), unitPrice = p, quantity = BigDecimal.ONE, unit = unit, pending = true))
             return
         }
         val msg = validate(p, n)
@@ -693,17 +732,17 @@ private fun EditRow(e: Entry, onSave: (Entry) -> Unit, onDelete: () -> Unit, onC
             err = msg
             return
         }
-        onSave(e.copy(name = name.trim().take(20), unitPrice = p, quantity = n, unit = unit, pending = false))
+        onSave(e.copy(name = name.text.trim().take(20), unitPrice = p, quantity = n, unit = unit, pending = false))
     }
 
     LaunchedEffect(e.id) {
-        runCatching { focus.requestFocus() }
+        runCatching { (when (focusField) { 1 -> focusPrice; 2 -> focusQty; else -> focusName }).requestFocus() }
         delay(350)
         requester.bringIntoView()
     }
 
-    val p = parseNum(price)
-    val qn = parseQtyInput(qty).number
+    val p = parseNum(price.text)
+    val qn = parseQtyInput(qty.text).number
     val sub = when {
         p == null -> "—"
         qn == null -> "待定"
@@ -714,12 +753,15 @@ private fun EditRow(e: Entry, onSave: (Entry) -> Unit, onDelete: () -> Unit, onC
         Row(verticalAlignment = Alignment.CenterVertically) {
             CellField(
                 name, { name = it; err = null }, W_NAME, TextAlign.Start,
-                KeyboardType.Text, ImeAction.Next, Modifier.focusRequester(focus)
+                KeyboardType.Text, ImeAction.Next, Modifier.focusRequester(focusName)
             )
-            CellField(price, { price = it; err = null }, W_PRICE, TextAlign.End, KeyboardType.Decimal, ImeAction.Next)
+            CellField(
+                price, { price = it; err = null }, W_PRICE, TextAlign.End,
+                KeyboardType.Decimal, ImeAction.Next, Modifier.focusRequester(focusPrice)
+            )
             CellField(
                 qty, { qty = it; err = null }, W_QTY, TextAlign.End,
-                KeyboardType.Text, ImeAction.Done, onDone = { save() }
+                KeyboardType.Text, ImeAction.Done, Modifier.focusRequester(focusQty), onDone = { save() }
             )
             Txt(sub, W_SUB, bold = true, color = DeepOrange, softWrap = false)
         }
@@ -742,7 +784,8 @@ private fun EditRow(e: Entry, onSave: (Entry) -> Unit, onDelete: () -> Unit, onC
 private fun LedgerTable(
     entries: List<Entry>,
     editingId: Long?,
-    onRowClick: (Entry) -> Unit,
+    editingField: Int,
+    onRowClick: (Entry, Int) -> Unit,
     onLongPress: () -> Unit,
     onSave: (Entry) -> Unit,
     onDelete: (Entry) -> Unit,
@@ -758,9 +801,9 @@ private fun LedgerTable(
             TableHead()
             entries.forEach { e ->
                 if (e.id == editingId) {
-                    EditRow(e, onSave, { onDelete(e) }, onCancel)
+                    EditRow(e, editingField, onSave, { onDelete(e) }, onCancel)
                 } else {
-                    EntryLine(e, { onRowClick(e) }, onLongPress)
+                    EntryLine(e, { f -> onRowClick(e, f) }, onLongPress)
                 }
                 HLine()
             }
@@ -775,9 +818,10 @@ private fun TripCardView(
     checked: Boolean,
     selecting: Boolean,
     editingId: Long?,
+    editingField: Int,
     onToggle: () -> Unit,
     onLongPress: () -> Unit,
-    onRowClick: (Entry) -> Unit,
+    onRowClick: (Entry, Int) -> Unit,
     onSave: (Entry) -> Unit,
     onDeleteEntry: (Entry) -> Unit,
     onCancelEdit: () -> Unit,
@@ -838,6 +882,7 @@ private fun TripCardView(
                     LedgerTable(
                         entries = item.entries,
                         editingId = editingId,
+                        editingField = editingField,
                         onRowClick = onRowClick,
                         onLongPress = onLongPress,
                         onSave = onSave,
