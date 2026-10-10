@@ -15,6 +15,8 @@ import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import androidx.room.TypeConverter
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 import java.math.BigDecimal
@@ -47,7 +49,9 @@ data class Entry(
     val name: String,
     val unitPrice: BigDecimal,
     val quantity: BigDecimal,
-    val createdAt: Long
+    val createdAt: Long,
+    /** 数量后面的单位，比如 斤、把、个；可以为空 */
+    val unit: String = ""
 )
 
 class Converters {
@@ -96,6 +100,20 @@ abstract class LedgerDao {
     @Query("DELETE FROM trips WHERE id = :id")
     abstract suspend fun deleteTrip(id: Long)
 
+    @Query("DELETE FROM entries WHERE tripId IN (:ids)")
+    abstract suspend fun deleteEntriesOfTrips(ids: List<Long>)
+
+    @Query("DELETE FROM trips WHERE id IN (:ids)")
+    abstract suspend fun deleteTripsByIds(ids: List<Long>)
+
+    /** 删除整张表格（一趟），里面的记录一起删掉。 */
+    @Transaction
+    open suspend fun deleteTrips(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        deleteEntriesOfTrips(ids)
+        deleteTripsByIds(ids)
+    }
+
     /** 记一笔（或多笔）。没有进行中的一趟时自动开一趟。整个过程是一个事务。 */
     @Transaction
     open suspend fun addEntries(items: List<Parsed>, now: Long) {
@@ -108,7 +126,8 @@ abstract class LedgerDao {
                     name = it.name,
                     unitPrice = it.price,
                     quantity = it.qty,
-                    createdAt = now
+                    createdAt = now,
+                    unit = it.unit
                 )
             }
         )
@@ -135,7 +154,14 @@ abstract class LedgerDao {
     }
 }
 
-@Database(entities = [Trip::class, Entry::class], version = 1, exportSchema = false)
+/** 1 → 2：每一笔多一个"单位"（斤、把……） */
+val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE entries ADD COLUMN unit TEXT NOT NULL DEFAULT ''")
+    }
+}
+
+@Database(entities = [Trip::class, Entry::class], version = 2, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class LedgerDb : RoomDatabase() {
     abstract fun dao(): LedgerDao
@@ -150,7 +176,7 @@ abstract class LedgerDb : RoomDatabase() {
                     context.applicationContext,
                     LedgerDb::class.java,
                     "ledger.db"
-                ).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2).build().also { instance = it }
             }
     }
 }
