@@ -51,7 +51,9 @@ data class Entry(
     val quantity: BigDecimal,
     val createdAt: Long,
     /** 数量后面的单位，比如 斤、把、个；可以为空 */
-    val unit: String = ""
+    val unit: String = "",
+    /** 待称：单价已知（如 米 6.5/斤），数量还没称出来；小计待定，不计入总计 */
+    val pending: Boolean = false
 )
 
 class Converters {
@@ -127,7 +129,8 @@ abstract class LedgerDao {
                     unitPrice = it.price,
                     quantity = it.qty,
                     createdAt = now,
-                    unit = it.unit
+                    unit = it.unit,
+                    pending = it.pending
                 )
             }
         )
@@ -161,7 +164,14 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
-@Database(entities = [Trip::class, Entry::class], version = 2, exportSchema = false)
+/** 2 → 3：每一笔多一个"待称"标记（单价已知、数量还没称） */
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE entries ADD COLUMN pending INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
+@Database(entities = [Trip::class, Entry::class], version = 3, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class LedgerDb : RoomDatabase() {
     abstract fun dao(): LedgerDao
@@ -176,7 +186,7 @@ abstract class LedgerDb : RoomDatabase() {
                     context.applicationContext,
                     LedgerDb::class.java,
                     "ledger.db"
-                ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
             }
     }
 }
