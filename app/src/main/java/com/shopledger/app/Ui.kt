@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -37,6 +38,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -49,11 +51,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -61,15 +66,38 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.math.BigDecimal
 
-private const val W_SEQ = 0.55f
-private const val W_NAME = 2.1f
+private const val W_SEQ = 0.45f
+private const val W_NAME = 1.7f
 private const val W_PRICE = 1f
-private const val W_QTY = 0.8f
-private const val W_SUB = 1.1f
-private const val W_CUM = 1.3f
+private const val W_QTY = 0.7f
+private const val W_SUB = 1.2f
+private const val W_CUM = 1.4f
 
 private val HeaderBg = Color(0xFFE3EDE8)
 private val Line = Color(0xFFC5D6CD)
+
+/**
+ * 按手机屏幕排版：
+ * - 宽屏（平板、折叠屏展开）时内容限制在 480dp 宽，居中，和手机一样的版面
+ * - 字号按屏幕宽度小幅缩放（基准 360dp），窄屏不挤、宽屏不空
+ * - 系统字体放得很大时封顶，免得表格被撑坏
+ */
+@Composable
+fun PhoneFrame(content: @Composable () -> Unit) {
+    val widthDp = LocalConfiguration.current.screenWidthDp
+    val d = LocalDensity.current
+    val scale = (1f + (minOf(widthDp, 480) - 360) / 360f * 0.5f).coerceIn(0.88f, 1.1f)
+    CompositionLocalProvider(
+        LocalDensity provides Density(d.density, minOf(d.fontScale, 1.15f) * scale)
+    ) {
+        Box(
+            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            Box(Modifier.widthIn(max = 480.dp).fillMaxHeight()) { content() }
+        }
+    }
+}
 
 @Composable
 fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
@@ -282,7 +310,8 @@ private fun RowScope.Cell(
     align: TextAlign = TextAlign.End,
     bold: Boolean = false,
     color: Color = Color.Unspecified,
-    fontSize: TextUnit = 14.sp
+    fontSize: TextUnit = 14.sp,
+    softWrap: Boolean = true
 ) {
     Box(
         Modifier
@@ -292,7 +321,7 @@ private fun RowScope.Cell(
                 val w = 1.dp.toPx()
                 drawLine(Line, Offset(size.width - w / 2, 0f), Offset(size.width - w / 2, size.height), w)
             }
-            .padding(horizontal = 5.dp, vertical = 9.dp),
+            .padding(horizontal = 4.dp, vertical = 9.dp),
         contentAlignment = when (align) {
             TextAlign.Start -> Alignment.CenterStart
             TextAlign.Center -> Alignment.Center
@@ -304,7 +333,9 @@ private fun RowScope.Cell(
             textAlign = align,
             fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
             color = color,
-            fontSize = fontSize
+            fontSize = fontSize,
+            softWrap = softWrap,
+            maxLines = if (softWrap) Int.MAX_VALUE else 1
         )
     }
 }
@@ -334,10 +365,10 @@ private fun EntryRow(item: RowItem, onClick: () -> Unit) {
             TextAlign.Start,
             color = if (unnamed) Color.Gray else Color.Unspecified
         )
-        Cell(fmtNum(e.unitPrice), W_PRICE)
-        Cell(fmtNum(e.quantity), W_QTY)
-        Cell(fmtMoney(e.subtotal()), W_SUB)
-        Cell(fmtMoney(item.cumulative), W_CUM, bold = true, color = MaterialTheme.colorScheme.primary)
+        Cell(fmtNum(e.unitPrice), W_PRICE, softWrap = false)
+        Cell(fmtNum(e.quantity), W_QTY, softWrap = false)
+        Cell(fmtMoney(e.subtotal()), W_SUB, softWrap = false)
+        Cell(fmtMoney(item.cumulative), W_CUM, bold = true, color = MaterialTheme.colorScheme.primary, softWrap = false)
     }
 }
 
