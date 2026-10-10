@@ -111,6 +111,9 @@ import java.math.BigDecimal
 /** 输入法弹出/收起时，累计条与滚动的时长：越长，每一帧走的距离越小 */
 private const val TypingMs = 380
 
+/** 接近匀速、只有两端稍微柔一点：中间每一帧走的距离几乎一样，结尾不会明显变慢、不会有"停一下"的感觉 */
+private val TypingEasing = androidx.compose.animation.core.CubicBezierEasing(0.25f, 0.1f, 0.75f, 0.9f)
+
 // 气泡里表格的列宽比例：名称、支出、数量、小计
 private const val W_NAME = 1.4f
 private const val W_PRICE = 0.9f
@@ -160,6 +163,23 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
     var prevCount by remember { mutableIntStateOf(0) }
     var prevEnded by remember { mutableStateOf<Boolean?>(null) }
 
+    // 回到最新这一张：用接近匀速的曲线自己滚（系统自带的 animateScrollToItem 是先快后慢的弹簧）。
+    // 翻得很远、不在最新这一张附近时，距离算不准，才交给系统的滚动。
+    suspend fun glideToLatest() {
+        if (listState.firstVisibleItemIndex == 0) {
+            val d0 = listState.firstVisibleItemScrollOffset.toFloat()
+            if (d0 > 0f) {
+                Animatable(0f).animateTo(1f, tween(durationMillis = 320, easing = TypingEasing)) {
+                    val want = d0 * (1f - value)
+                    val cur = listState.firstVisibleItemScrollOffset.toFloat()
+                    if (cur > want) listState.dispatchRawDelta(want - cur)
+                }
+            }
+        } else {
+            listState.animateScrollToItem(0)
+        }
+    }
+
     // 有新内容时滚到最底；删除、修改不会乱跳
     // 记一笔、结束、继续记之后，都滚到最底，保证最新的整张表格完整露出来
     val lastEnded = (ui.items.lastOrNull() as? TripCard)?.ended
@@ -169,7 +189,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
         val grew = size > prevSize || ui.currentCount > prevCount || endChanged
         if (grew && size > 0) {
             if (prevSize == 0) listState.scrollToItem(0)
-            else listState.animateScrollToItem(0)
+            else glideToLatest()
         }
         prevSize = size
         prevCount = ui.currentCount
@@ -185,7 +205,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
     val scope = rememberCoroutineScope()
     val editingNow by rememberUpdatedState(editingId)
     fun scrollToLatest() {
-        if (editingNow == null) scope.launch { listState.animateScrollToItem(0) }
+        if (editingNow == null) scope.launch { glideToLatest() }
     }
     // "要打字了"：点输入框的那一刻置 true；输入法开始往下收的第一帧置 false。
     var imeWanted by remember { mutableStateOf(false) }
@@ -213,7 +233,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
             val d0 = if (atNearBottom) listState.firstVisibleItemScrollOffset.toFloat() else 0f
             // 翻得很远（不在最新这一张里）：交给系统滚动，少见的情况
             if (!atNearBottom && editingNow == null) launch { listState.animateScrollToItem(0) }
-            typing.animateTo(1f, tween(durationMillis = TypingMs, easing = FastOutSlowInEasing)) {
+            typing.animateTo(1f, tween(durationMillis = TypingMs, easing = TypingEasing)) {
                 if (d0 > 0f && editingNow == null) {
                     val want = d0 * (1f - value)
                     val cur = listState.firstVisibleItemScrollOffset.toFloat()
@@ -221,7 +241,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                 }
             }
         } else {
-            typing.animateTo(0f, tween(durationMillis = TypingMs, easing = FastOutSlowInEasing))
+            typing.animateTo(0f, tween(durationMillis = TypingMs, easing = TypingEasing))
         }
     }
 
@@ -321,7 +341,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                     Box(
                         Modifier.animateItem(
                             fadeInSpec = tween(300),
-                            placementSpec = tween(320, easing = FastOutSlowInEasing),
+                            placementSpec = tween(320, easing = TypingEasing),
                             fadeOutSpec = tween(220)
                         )
                     ) {
@@ -775,7 +795,7 @@ private fun TripCardView(
             Column(
                 Modifier
                     // 加一行、改某一行（展开）、删一行、结束变结算：高度都是平滑变化，不是一下子跳
-                    .animateContentSize(tween(280, easing = FastOutSlowInEasing))
+                    .animateContentSize(tween(280, easing = TypingEasing))
                     .combinedClickable(onClick = { if (selecting) onToggle() }, onLongClick = onLongPress)
                     .padding(horizontal = 10.dp, vertical = 8.dp)
             ) {
