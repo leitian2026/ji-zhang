@@ -82,6 +82,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -198,7 +200,6 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
 
     // 列表用"从底往上排"（reverseLayout）：最新的一张表格永远贴在底部，
     // 输入法弹出、收起时可视区变矮变高，贴底的内容由系统在同一帧里自动跟着走。
-    // 点输入框的那一刻（输入法还没出来）就开始滚回最新这一张，和输入法同时动，不等它弹完。
     // 正在改某一行时，由那一行自己滚到可见位置，这里不动。
     val density = LocalDensity.current
     val imeInsets = WindowInsets.ime
@@ -207,42 +208,44 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
     fun scrollToLatest() {
         if (editingNow == null) scope.launch { glideToLatest() }
     }
-    // "要打字了"：点输入框的那一刻置 true；输入法开始往下收的第一帧置 false。
-    var imeWanted by remember { mutableStateOf(false) }
+    // 滚回当前表格、顶端累计条，都直接跟着输入法自己的动画走（用输入法当前的高度算进度），
+    // 三件事是同一条时间线、同一个起点，所以是同时开始、同时结束，不会"先滚完、输入法才出来"。
+    // 输入法还没开始动的那一小段时间里，页面保持不动，等它一动，整个页面一起动。
+    var imePeak by remember { mutableFloatStateOf(with(density) { 260.dp.toPx() }) }
     LaunchedEffect(listState) {
         var last = 0
-        snapshotFlow { imeInsets.getBottom(density) }.collect { b ->
-            if (b > last && !imeWanted) imeWanted = true   // 兜底：输入法不是点输入框弹出的
-            else if (b < last) imeWanted = false
-            last = b
-        }
-    }
-    // 点了输入框但输入法一直没出来（比如接了实体键盘），就恢复原样
-    LaunchedEffect(imeWanted) {
-        if (imeWanted) {
-            delay(800)
-            if (imeInsets.getBottom(density) == 0) imeWanted = false
-        }
-    }
-    // 只有一条时间线 typing（0→1）：顶端累计条的变化、滚回当前表格，都由它在每一帧里算出来，
-    // 两件事用同一条曲线、同一个起点，所以步调一致，不会一个快一个慢。
-    val typing = remember { Animatable(0f) }
-    LaunchedEffect(imeWanted) {
-        if (imeWanted) {
-            val atNearBottom = listState.firstVisibleItemIndex == 0
-            val d0 = if (atNearBottom) listState.firstVisibleItemScrollOffset.toFloat() else 0f
-            // 翻得很远（不在最新这一张里）：交给系统滚动，少见的情况
-            if (!atNearBottom && editingNow == null) launch { listState.animateScrollToItem(0) }
-            typing.animateTo(1f, tween(durationMillis = TypingMs, easing = TypingEasing)) {
-                if (d0 > 0f && editingNow == null) {
-                    val want = d0 * (1f - value)
-                    val cur = listState.firstVisibleItemScrollOffset.toFloat()
-                    if (cur > want) listState.dispatchRawDelta(want - cur)
-                }
+        var d0 = 0f
+        snapshotFlow { imeInsets.getBottom(density) }.collectLatest { b ->
+            if (last == 0 && b > 0) {
+                // 输入法刚开始弹出：记下离最新这一张还有多远
+                val near = listState.firstVisibleItemIndex == 0
+                d0 = if (editingNow == null && near) listState.firstVisibleItemScrollOffset.toFloat() else 0f
+                if (editingNow == null && !near) launch { listState.animateScrollToItem(0) }
             }
-        } else {
-            typing.animateTo(0f, tween(durationMillis = TypingMs, easing = TypingEasing))
+            if (b > last && d0 > 0f) {
+                // 输入法升到了几成，这段距离就同步滚掉几成
+                val frac = (b / imePeak).coerceIn(0f, 1f)
+                val want = d0 * (1f - frac)
+                val cur = listState.firstVisibleItemScrollOffset.toFloat()
+                if (cur > want) listState.dispatchRawDelta(want - cur)
+            }
+            last = b
+            if (b > 0) {
+                // 输入法不动了（连续 150ms 没变化）：记住它的最终高度，下次进度更准；
+                // 如果还差一点没滚到位，补一小段
+                delay(150)
+                imePeak = maxOf(b.toFloat(), 1f)
+                if (d0 > 0f && listState.firstVisibleItemScrollOffset > 0) glideToLatest()
+                d0 = 0f
+            } else {
+                d0 = 0f
+            }
         }
+    }
+    // 顶端累计条的"压扁进度"：0＝没有输入法，1＝输入法升到 160dp 以上
+    val imeThresholdPx = with(density) { 160.dp.toPx() }
+    val imeFraction: () -> Float = {
+        (imeInsets.getBottom(density) / imeThresholdPx).coerceIn(0f, 1f)
     }
 
     val cards = ui.items.filterIsInstance<TripCard>()
@@ -301,7 +304,8 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                 onSend = { submit() },
                 onInputTouch = {
                     // 输入法已经开着、只是你翻到了上面：点输入框回到最新这一张
-                    if (imeWanted) scrollToLatest() else imeWanted = true
+                    // （输入法还没开时，由输入法的动画带着一起动，这里不用管）
+                    if (imeInsets.getBottom(density) > 0) scrollToLatest()
                 },
                 onEnd = {
                     if (ui.currentCount == 0) {
@@ -314,7 +318,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
         }
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            TotalBar(ui.currentTotal, ui.currentCount) { typing.value }
+            TotalBar(ui.currentTotal, ui.currentCount, imeFraction)
             LazyColumn(
                 state = listState,
                 reverseLayout = true,
