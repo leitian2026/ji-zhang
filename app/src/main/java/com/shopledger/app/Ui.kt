@@ -130,6 +130,9 @@ private const val W_SUB = 1.15f
 /** "待称"的颜色：和蓝色的金额区分开，一眼看出还有没定的 */
 private val PendingColor = Color(0xFFD9822B)
 
+/** 结束后的"本趟结算"和总计：用红色，一眼就看出这一趟已经算完 */
+private val EndedRed = Color(0xFFE02B2B)
+
 /** 白色卡片（外框）离屏幕左右边缘的距离，和卡片离输入框的距离用同一个值；窄屏小一点 */
 @Composable
 private fun edgeGap(): androidx.compose.ui.unit.Dp =
@@ -866,6 +869,7 @@ private fun TripCardView(
                         if (item.ended) "本趟结算" else "本趟记账",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
+                        color = if (item.ended) EndedRed else Color.Unspecified,
                         modifier = Modifier.weight(1f)
                     )
                     if (item.ended) {
@@ -925,7 +929,7 @@ private fun TripCardView(
                         Text(
                             if (item.ended) "总计 " else "累计 ",
                             fontSize = 12.sp,
-                            color = DeepOrange,
+                            color = if (item.ended) EndedRed else DeepOrange,
                             maxLines = 1,
                             softWrap = false,
                             modifier = Modifier.alignByBaseline()
@@ -934,7 +938,7 @@ private fun TripCardView(
                             "¥ ${fmtMoney(item.total)}",
                             fontSize = 28.sp,
                             fontWeight = FontWeight.Black,
-                            color = DeepOrange,
+                            color = if (item.ended) EndedRed else DeepOrange,
                             maxLines = 1,
                             softWrap = false,
                             modifier = Modifier.alignByBaseline()
