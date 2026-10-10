@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -245,6 +247,7 @@ private fun TopBar() {
         Modifier
             .fillMaxWidth()
             .background(Brush.horizontalGradient(listOf(BrandStart, BrandEnd)))
+            .statusBarsPadding()
             .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
         Text(
@@ -280,25 +283,17 @@ private fun TotalBar(total: BigDecimal, count: Int) {
 
 @Composable
 private fun Avatar(label: String, color: Color) {
-    Box(
-        Modifier.size(38.dp).background(color, CircleShape),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(label, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+    Surface(shape = CircleShape, color = Color.White, shadowElevation = 2.dp, modifier = Modifier.size(38.dp)) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(label, color = color, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
 @Composable
 private fun TripHeader(label: String) {
     Box(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 4.dp), contentAlignment = Alignment.Center) {
-        Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFFD3E6F8)) {
-            Text(
-                label,
-                fontSize = 12.sp,
-                color = Muted,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-            )
-        }
+        Text(label, fontSize = 12.sp, color = Muted)
     }
 }
 
@@ -319,7 +314,7 @@ private fun RowScope.Txt(
 ) {
     Text(
         text = text,
-        modifier = Modifier.weight(weight).padding(horizontal = 8.dp, vertical = 9.dp),
+        modifier = Modifier.weight(weight).padding(horizontal = 10.dp, vertical = 11.dp),
         textAlign = align,
         fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
         color = color,
@@ -330,32 +325,21 @@ private fun RowScope.Txt(
 }
 
 @Composable
-private fun VDiv() {
-    Box(Modifier.width(1.dp).fillMaxHeight().background(BubbleLine))
-}
-
-@Composable
 private fun TableHead() {
-    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).background(TableHeadBg)) {
+    Row(Modifier.fillMaxWidth().background(TableHeadBg)) {
         Txt("名称", W_NAME, TextAlign.Start, size = 12.sp, color = Muted, bold = true)
-        VDiv()
         Txt("单价", W_PRICE, size = 12.sp, color = Muted, bold = true)
-        VDiv()
         Txt("数量", W_QTY, size = 12.sp, color = Muted, bold = true)
-        VDiv()
         Txt("小计", W_SUB, size = 12.sp, color = Muted, bold = true)
     }
-    HLine()
 }
 
 @Composable
-private fun EntryLine(e: Entry, editable: Boolean, index: Int, onClick: () -> Unit) {
+private fun EntryLine(e: Entry, editable: Boolean, onClick: () -> Unit) {
     val unnamed = e.name.isBlank()
     Row(
         Modifier
             .fillMaxWidth()
-            .height(IntrinsicSize.Min)
-            .background(if (index % 2 == 1) TableZebra else Color.White)
             .clickable(enabled = editable, onClick = onClick),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -365,28 +349,47 @@ private fun EntryLine(e: Entry, editable: Boolean, index: Int, onClick: () -> Un
             TextAlign.Start,
             color = if (unnamed) Muted else Color.Unspecified
         )
-        VDiv()
         Txt(fmtNum(e.unitPrice), W_PRICE, softWrap = false)
-        VDiv()
         Txt(fmtNum(e.quantity), W_QTY, softWrap = false)
-        VDiv()
-        Txt(fmtMoney(e.subtotal()), W_SUB, bold = true, softWrap = false)
+        Txt(fmtMoney(e.subtotal()), W_SUB, bold = true, color = DeepOrange, softWrap = false)
     }
-    HLine()
 }
 
-/** 真正的表格：白底圆角卡片、表头有底色、有竖线、隔行变色 */
+/** 表格：白色圆角卡片，表头淡蓝底，行与行之间一条细线，底部可带一行合计 */
 @Composable
-private fun LedgerTable(entries: List<Entry>, editable: Boolean, onEdit: (Entry) -> Unit) {
+private fun LedgerTable(
+    entries: List<Entry>,
+    editable: Boolean,
+    totalLabel: String? = null,
+    total: BigDecimal? = null,
+    onEdit: (Entry) -> Unit
+) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(14.dp),
         color = Color.White,
         border = BorderStroke(1.dp, BubbleLine),
-        shadowElevation = 1.dp
+        shadowElevation = 2.dp
     ) {
         Column {
             TableHead()
-            entries.forEachIndexed { i, e -> EntryLine(e, editable, i) { onEdit(e) } }
+            entries.forEach { e ->
+                EntryLine(e, editable) { onEdit(e) }
+                HLine()
+            }
+            if (totalLabel != null && total != null) {
+                Row(
+                    Modifier.fillMaxWidth().background(TableHeadBg).padding(horizontal = 8.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(totalLabel, fontSize = 13.sp, color = Muted, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text(
+                        "¥${fmtMoney(total)}",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = DeepOrange
+                    )
+                }
+            }
         }
     }
 }
@@ -403,27 +406,17 @@ private fun MyBubble(item: BatchItem, onEdit: (Entry) -> Unit) {
             modifier = Modifier.weight(1f, fill = false).widthIn(max = BubbleMaxWidth),
             shape = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp),
             color = BubbleMine,
-            shadowElevation = 3.dp
+            shadowElevation = 2.dp
         ) {
-            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                LedgerTable(item.entries, item.editable, onEdit)
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        fmtTime(item.time),
-                        fontSize = 11.sp,
-                        color = Muted,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        "累计 ¥${fmtMoney(item.cumulative)}",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = DeepOrange
-                    )
-                }
+            Column(Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 4.dp)) {
+                LedgerTable(item.entries, item.editable, "累计", item.cumulative, onEdit)
+                Text(
+                    fmtTime(item.time),
+                    fontSize = 11.sp,
+                    color = Color.White.copy(alpha = 0.85f),
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp)
+                )
             }
         }
         Spacer(Modifier.width(8.dp))
@@ -481,8 +474,7 @@ private fun InputBar(
     onSend: () -> Unit,
     onEnd: () -> Unit
 ) {
-    Column(Modifier.fillMaxWidth().background(Color(0xFFF4F7FC))) {
-        HLine()
+    Column(Modifier.fillMaxWidth().background(Color(0xFFF1F3F9)).navigationBarsPadding().imePadding()) {
         if (error != null) {
             Text(
                 error,
