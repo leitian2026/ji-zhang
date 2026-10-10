@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,7 +72,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.math.BigDecimal
 
-// 气泡里表格的列宽比例：名称、单价、数量、小计
+// 气泡里表格的列宽比例：名称、支出、数量、小计
 private const val W_NAME = 1.9f
 private const val W_PRICE = 1f
 private const val W_QTY = 0.8f
@@ -110,17 +111,23 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
     val listState = rememberLazyListState()
     var prevSize by remember { mutableIntStateOf(0) }
     var prevCount by remember { mutableIntStateOf(0) }
+    var prevEnded by remember { mutableStateOf<Boolean?>(null) }
 
     // 有新内容时滚到最底；删除、修改不会乱跳
-    LaunchedEffect(ui.items.size, ui.currentCount) {
+    // 记一笔、结束、继续记之后，都滚到最底，保证最新的整张表格完整露出来
+    val lastEnded = (ui.items.lastOrNull() as? TripCard)?.ended
+    LaunchedEffect(ui.items.size, ui.currentCount, lastEnded) {
         val size = ui.items.size
-        val grew = size > prevSize || ui.currentCount > prevCount
+        val endChanged = prevEnded != null && lastEnded != prevEnded
+        val grew = size > prevSize || ui.currentCount > prevCount || endChanged
         if (grew && size > 0) {
             if (prevSize == 0) listState.scrollToItem(size - 1)
             else listState.animateScrollToItem(size - 1)
+            listState.animateScrollBy(100000f)
         }
         prevSize = size
         prevCount = ui.currentCount
+        prevEnded = lastEnded
     }
 
     fun submit() {
@@ -161,7 +168,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(vertical = 8.dp)
+                contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp)
             ) {
                 if (ui.loaded && ui.items.isEmpty()) {
                     item(key = "empty") {
@@ -319,7 +326,7 @@ private fun RowScope.Txt(
 private fun TableHead() {
     Row(Modifier.fillMaxWidth().background(TableHeadBg)) {
         Txt("名称", W_NAME, TextAlign.Start, size = 12.sp, color = Muted, bold = true)
-        Txt("单价", W_PRICE, size = 12.sp, color = Muted, bold = true)
+        Txt("支出", W_PRICE, size = 12.sp, color = Muted, bold = true)
         Txt("数量", W_QTY, size = 12.sp, color = Muted, bold = true)
         Txt("小计", W_SUB, size = 12.sp, color = Muted, bold = true)
     }
@@ -495,7 +502,7 @@ private fun EditDialog(entry: Entry, onSave: (Entry) -> Unit, onDelete: () -> Un
                 OutlinedTextField(
                     value = price,
                     onValueChange = { price = it },
-                    label = { Text("单价") },
+                    label = { Text("支出") },
                     singleLine = true
                 )
                 Spacer(Modifier.height(8.dp))
@@ -516,7 +523,7 @@ private fun EditDialog(entry: Entry, onSave: (Entry) -> Unit, onDelete: () -> Un
                 val p = price.trim().toBigDecimalOrNull()
                 val q = qty.trim().toBigDecimalOrNull()
                 if (p == null || q == null) {
-                    err = "单价和数量要填数字"
+                    err = "支出和数量要填数字"
                 } else {
                     val msg = validate(p, q)
                     if (msg != null) {
