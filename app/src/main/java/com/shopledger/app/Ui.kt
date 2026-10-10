@@ -219,6 +219,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
         }
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
+            TotalBar(ui.currentTotal, ui.currentCount)
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -412,6 +413,28 @@ private fun TickBox(
         ) {
             if (checked) Text("✓", color = markColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
         }
+    }
+}
+
+@Composable
+private fun TotalBar(total: BigDecimal, count: Int) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(TotalStrip)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("当前累计", fontSize = 12.sp, color = Muted)
+            Text(
+                "¥ ${fmtMoney(total)}",
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                color = DeepOrange
+            )
+        }
+        Text("共 $count 笔", color = Muted)
     }
 }
 
