@@ -60,7 +60,7 @@ private fun settlementText(label: String, entries: List<Entry>, total: BigDecima
     val sb = StringBuilder("【$label】\n")
     for (e in entries) {
         val n = e.name.ifBlank { "未命名" }
-        sb.append("$n  ${fmtNum(e.unitPrice)} × ${fmtNum(e.quantity)} = ${fmtMoney(e.subtotal())}\n")
+        sb.append("$n  ${fmtNum(e.unitPrice)} × ${fmtQty(e)} = ${fmtMoney(e.subtotal())}\n")
     }
     sb.append("共${entries.size}笔，总计 ${fmtMoney(total)}")
     return sb.toString()
@@ -136,6 +136,10 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun delete(entry: Entry) {
         viewModelScope.launch { dao.deleteEntry(entry) }
+    }
+
+    fun deleteTrips(ids: List<Long>) {
+        viewModelScope.launch { dao.deleteTrips(ids) }
     }
 
     fun end(name: String) {
