@@ -1,0 +1,103 @@
+package com.shopledger.app
+
+import java.math.BigDecimal
+import java.math.RoundingMode
+
+data class Parsed(val name: String, val price: BigDecimal, val qty: BigDecimal)
+
+sealed interface ParseResult {
+    data class Ok(val items: List<Parsed>) : ParseResult
+    data class Err(val message: String) : ParseResult
+}
+
+fun Entry.subtotal(): BigDecimal =
+    unitPrice.multiply(quantity).setScale(2, RoundingMode.HALF_UP)
+
+/** 金额：固定两位小数 */
+fun fmtMoney(value: BigDecimal): String =
+    value.setScale(2, RoundingMode.HALF_UP).toPlainString()
+
+/** 单价、数量：去掉多余的 0（10.00 → 10，2.50 → 2.5） */
+fun fmtNum(value: BigDecimal): String {
+    val s = value.stripTrailingZeros()
+    return (if (s.scale() < 0) s.setScale(0) else s).toPlainString()
+}
+
+fun validate(price: BigDecimal, qty: BigDecimal): String? = when {
+    price.signum() == 0 -> "金额不能是 0"
+    qty.signum() <= 0 -> "数量要大于 0"
+    price.abs() >= BigDecimal("1000000") -> "金额太大"
+    qty >= BigDecimal("100000") -> "数量太大"
+    else -> null
+}
+
+private val NUM = Regex("""(?<![\d.])-?(?:\d+(?:\.\d+)?|\.\d+)""")
+private val UNIT_AFTER = Regex("""(?<=\d)\s*(?:块钱|块|元)""")
+private val TIMES = Regex("""(?<=\d)\s*[xX*]\s*(?=\d)""")
+
+private fun normalize(s: String): String = buildString {
+    for (c in s) {
+        append(
+            when {
+                c in '０'..'９' -> '0' + (c - '０')
+                c == '，' || c == '、' -> ','
+                c == '．' || c == '。' -> '.'
+                c == '－' || c == '−' -> '-'
+                c == '＊' || c == '×' -> '*'
+                c == '￥' || c == '¥' -> ' '
+                c == '\u3000' || c == '\r' -> ' '
+                else -> c
+            }
+        )
+    }
+}
+
+private fun cleanName(s: String): String =
+    s.trim { it.isWhitespace() || it in ",*:：.、-" }.replace(Regex("\\s+"), " ").take(20)
+
+/**
+ * 一行 = 一笔。规则：
+ *  5            → 未命名，单价 5，数量 1
+ *  苹果5 / 苹果 5 / 5苹果 → 苹果，5
+ *  面条10，2 / 面条 10 2 / 面条10x2 → 面条，单价 10，数量 2
+ * 第一个数字是单价，第二个是数量。
+ */
+private fun parseLine(raw: String): ParseResult {
+    var line = UNIT_AFTER.replace(raw, "")
+    line = TIMES.replace(line, ",")
+    val ms = NUM.findAll(line).toList()
+    if (ms.isEmpty()) return ParseResult.Err("没有找到金额：$raw")
+    if (ms.size > 2) return ParseResult.Err("一笔最多两个数字（单价、数量）：$raw")
+
+    val price = BigDecimal(ms[0].value)
+    val qty = if (ms.size == 2) BigDecimal(ms[1].value) else BigDecimal.ONE
+    validate(price, qty)?.let { return ParseResult.Err("$it：$raw") }
+
+    val prefix = line.substring(0, ms.first().range.first)
+    val suffix = line.substring(ms.last().range.last + 1)
+    val between =
+        if (ms.size == 2) line.substring(ms[0].range.last + 1, ms[1].range.first) else ""
+    val name = listOf(prefix, suffix, between)
+        .map { cleanName(it) }
+        .firstOrNull { it.isNotEmpty() } ?: ""
+
+    return ParseResult.Ok(listOf(Parsed(name, price, qty)))
+}
+
+/** 整个输入框的内容。换行或分号分隔的多段，会拆成多笔。有一段不对就整体不入账。 */
+fun parseInput(text: String): ParseResult {
+    val lines = normalize(text)
+        .split('\n', ';', '；')
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+    if (lines.isEmpty()) return ParseResult.Err("请输入内容")
+
+    val out = ArrayList<Parsed>()
+    for (l in lines) {
+        when (val r = parseLine(l)) {
+            is ParseResult.Err -> return r
+            is ParseResult.Ok -> out.addAll(r.items)
+        }
+    }
+    return ParseResult.Ok(out)
+}
