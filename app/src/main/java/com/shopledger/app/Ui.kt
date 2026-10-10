@@ -10,6 +10,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -34,6 +36,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -316,7 +319,7 @@ private fun RowScope.Txt(
 ) {
     Text(
         text = text,
-        modifier = Modifier.weight(weight).padding(horizontal = 2.dp),
+        modifier = Modifier.weight(weight).padding(horizontal = 8.dp, vertical = 9.dp),
         textAlign = align,
         fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
         color = color,
@@ -327,24 +330,33 @@ private fun RowScope.Txt(
 }
 
 @Composable
+private fun VDiv() {
+    Box(Modifier.width(1.dp).fillMaxHeight().background(BubbleLine))
+}
+
+@Composable
 private fun TableHead() {
-    Row(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
-        Txt("名称", W_NAME, TextAlign.Start, size = 11.sp, color = Muted)
-        Txt("单价", W_PRICE, size = 11.sp, color = Muted)
-        Txt("数量", W_QTY, size = 11.sp, color = Muted)
-        Txt("小计", W_SUB, size = 11.sp, color = Muted)
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).background(TableHeadBg)) {
+        Txt("名称", W_NAME, TextAlign.Start, size = 12.sp, color = Muted, bold = true)
+        VDiv()
+        Txt("单价", W_PRICE, size = 12.sp, color = Muted, bold = true)
+        VDiv()
+        Txt("数量", W_QTY, size = 12.sp, color = Muted, bold = true)
+        VDiv()
+        Txt("小计", W_SUB, size = 12.sp, color = Muted, bold = true)
     }
     HLine()
 }
 
 @Composable
-private fun EntryLine(e: Entry, editable: Boolean, onClick: () -> Unit) {
+private fun EntryLine(e: Entry, editable: Boolean, index: Int, onClick: () -> Unit) {
     val unnamed = e.name.isBlank()
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable(enabled = editable, onClick = onClick)
-            .padding(vertical = 8.dp),
+            .height(IntrinsicSize.Min)
+            .background(if (index % 2 == 1) TableZebra else Color.White)
+            .clickable(enabled = editable, onClick = onClick),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Txt(
@@ -353,11 +365,30 @@ private fun EntryLine(e: Entry, editable: Boolean, onClick: () -> Unit) {
             TextAlign.Start,
             color = if (unnamed) Muted else Color.Unspecified
         )
+        VDiv()
         Txt(fmtNum(e.unitPrice), W_PRICE, softWrap = false)
+        VDiv()
         Txt(fmtNum(e.quantity), W_QTY, softWrap = false)
+        VDiv()
         Txt(fmtMoney(e.subtotal()), W_SUB, bold = true, softWrap = false)
     }
     HLine()
+}
+
+/** 真正的表格：白底圆角卡片、表头有底色、有竖线、隔行变色 */
+@Composable
+private fun LedgerTable(entries: List<Entry>, editable: Boolean, onEdit: (Entry) -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, BubbleLine),
+        shadowElevation = 1.dp
+    ) {
+        Column {
+            TableHead()
+            entries.forEachIndexed { i, e -> EntryLine(e, editable, i) { onEdit(e) } }
+        }
+    }
 }
 
 /** 我的气泡：靠右，里面是这一次输入的小表格，下面是累计。点某一行可以修改。 */
@@ -371,11 +402,11 @@ private fun MyBubble(item: BatchItem, onEdit: (Entry) -> Unit) {
         Surface(
             modifier = Modifier.weight(1f, fill = false).widthIn(max = BubbleMaxWidth),
             shape = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp),
-            color = BubbleMine
+            color = BubbleMine,
+            shadowElevation = 3.dp
         ) {
             Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                TableHead()
-                item.entries.forEach { e -> EntryLine(e, item.editable) { onEdit(e) } }
+                LedgerTable(item.entries, item.editable, onEdit)
                 Row(
                     Modifier.fillMaxWidth().padding(top = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -413,12 +444,12 @@ private fun SysBubble(item: FooterItem, onCopy: () -> Unit, onReopen: () -> Unit
         Surface(
             modifier = Modifier.weight(1f, fill = false).widthIn(max = BubbleMaxWidth),
             shape = RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp),
-            color = Color.White
+            color = Color.White,
+            shadowElevation = 3.dp
         ) {
             Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                 Text("本趟结算", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp))
-                TableHead()
-                item.entries.forEach { e -> EntryLine(e, editable = false) {} }
+                LedgerTable(item.entries, false) {}
                 Row(
                     Modifier.fillMaxWidth().padding(top = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -450,7 +481,7 @@ private fun InputBar(
     onSend: () -> Unit,
     onEnd: () -> Unit
 ) {
-    Column(Modifier.fillMaxWidth().background(Color.White)) {
+    Column(Modifier.fillMaxWidth().background(Color(0xFFF4F7FC))) {
         HLine()
         if (error != null) {
             Text(
@@ -474,6 +505,12 @@ private fun InputBar(
                 placeholder = { Text("苹果5　面条10，2") },
                 singleLine = true,
                 shape = RoundedCornerShape(24.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color.White,
+                    unfocusedContainerColor = Color.White,
+                    focusedBorderColor = Brand,
+                    unfocusedBorderColor = BubbleLine
+                ),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { onSend() })
             )
