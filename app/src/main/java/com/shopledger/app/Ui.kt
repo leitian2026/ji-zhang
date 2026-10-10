@@ -179,17 +179,28 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
     fun scrollToLatest() {
         if (editingNow == null) scope.launch { listState.animateScrollToItem(0) }
     }
-    // 兜底：输入法用别的方式弹出时（不是点输入框），一出现也立刻滚
+    // "要打字了"：点输入框的那一刻就置 true，滚回当前表格和顶端累计条的变化同时开始，一起动；
+    // 输入法开始往下收的第一帧就置 false，累计条跟着一起变回来（不等输入法完全消失）。
+    var imeWanted by remember { mutableStateOf(false) }
     LaunchedEffect(listState) {
-        snapshotFlow { imeInsets.getBottom(density) > 0 }.collect { open ->
-            if (open) scrollToLatest()
+        var last = 0
+        snapshotFlow { imeInsets.getBottom(density) }.collect { b ->
+            if (b > last && !imeWanted) {
+                // 兜底：输入法不是点输入框弹出的，一出现也立刻动
+                imeWanted = true
+                scrollToLatest()
+            } else if (b < last) {
+                imeWanted = false
+            }
+            last = b
         }
     }
-    // 顶端累计条的"压扁进度"直接跟着输入法的高度走：0＝没有输入法，1＝弹出一大半。
-    // 弹出、收起都和输入法同步，没有延迟。
-    val imeThresholdPx = with(density) { 160.dp.toPx() }
-    val imeFraction: () -> Float = {
-        (imeInsets.getBottom(density) / imeThresholdPx).coerceIn(0f, 1f)
+    // 点了输入框但输入法一直没出来（比如接了实体键盘），就恢复原样
+    LaunchedEffect(imeWanted) {
+        if (imeWanted) {
+            delay(800)
+            if (imeInsets.getBottom(density) == 0) imeWanted = false
+        }
     }
 
     val cards = ui.items.filterIsInstance<TripCard>()
@@ -246,7 +257,10 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                     error = null
                 },
                 onSend = { submit() },
-                onInputTouch = { scrollToLatest() },
+                onInputTouch = {
+                    imeWanted = true
+                    scrollToLatest()
+                },
                 onEnd = {
                     if (ui.currentCount == 0) {
                         Toast.makeText(context, "这一趟还没有记录", Toast.LENGTH_SHORT).show()
@@ -258,7 +272,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
         }
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            TotalBar(ui.currentTotal, ui.currentCount, imeFraction)
+            TotalBar(ui.currentTotal, ui.currentCount, compact = imeWanted)
             LazyColumn(
                 state = listState,
                 reverseLayout = true,
@@ -458,10 +472,14 @@ private fun TickBox(
 }
 
 @Composable
-private fun TotalBar(total: BigDecimal, count: Int, fraction: () -> Float) {
+private fun TotalBar(total: BigDecimal, count: Int, compact: Boolean) {
     // 只有一套布局，用一个 0→1 的进度连续变化：位置、高度、字号都按进度插值，
-    // 进度直接来自输入法的高度，所以和输入法同步，没有延迟，也不会闪。
-    val f = fraction()
+    // 进度由"要打字了"的信号触发，和滚回当前表格同时开始。
+    val f by animateFloatAsState(
+        targetValue = if (compact) 1f else 0f,
+        animationSpec = tween(durationMillis = 220),
+        label = "totalBar"
+    )
     Layout(
         content = {
             Text("当前累计", fontSize = 12.sp, color = Muted)
