@@ -51,8 +51,11 @@ fun fmtTime(ms: Long): String =
 fun fmtDate(ms: Long): String =
     SimpleDateFormat("M月d日 HH:mm", Locale.CHINA).format(ms)
 
-private fun headerLabel(index: Int, trip: Trip): String {
-    val base = "第${index}趟 · ${fmtDate(trip.startedAt)}"
+fun fmtDateSec(ms: Long): String =
+    SimpleDateFormat("M月d日 HH:mm:ss", Locale.CHINA).format(ms)
+
+private fun headerLabel(trip: Trip): String {
+    val base = fmtDateSec(trip.startedAt)
     return if (trip.name.isNotBlank()) "$base · ${trip.name}" else base
 }
 
@@ -77,7 +80,7 @@ private fun buildState(trips: List<Trip>, entries: List<Entry>): UiState {
     shown.forEachIndexed { idx, trip ->
         val es = byTrip.getValue(trip.id)
         val ended = trip.endedAt != null
-        val label = headerLabel(idx + 1, trip)
+        val label = headerLabel(trip)
         items.add(HeaderItem(label, trip.id))
         var cum = BigDecimal.ZERO.setScale(2)
         for (e in es) cum = cum.add(e.subtotal())
