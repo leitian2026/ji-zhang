@@ -3,7 +3,7 @@ package com.shopledger.app
 import java.math.BigDecimal
 import java.math.RoundingMode
 
-data class Parsed(val name: String, val price: BigDecimal, val qty: BigDecimal)
+data class Parsed(val name: String, val price: BigDecimal, val qty: BigDecimal, val unit: String = "")
 
 sealed interface ParseResult {
     data class Ok(val items: List<Parsed>) : ParseResult
@@ -12,6 +12,21 @@ sealed interface ParseResult {
 
 fun Entry.subtotal(): BigDecimal =
     unitPrice.multiply(quantity).setScale(2, RoundingMode.HALF_UP)
+
+/** 数量 + 单位，比如 2斤、1把；没写单位就只显示数字 */
+fun fmtQty(e: Entry): String = fmtNum(e.quantity) + e.unit
+
+/** 表格里手改"支出"用：支持全角数字 */
+fun parseNum(s: String): BigDecimal? = normalize(s).trim().toBigDecimalOrNull()
+
+private val QTY_WITH_UNIT = Regex("""^\s*(-?(?:\d+(?:\.\d+)?|\.\d+))\s*(.*)$""")
+
+/** 表格里手改"数量"用：2 / 2斤 / 1把 → (数量, 单位) */
+fun parseQty(s: String): Pair<BigDecimal, String>? {
+    val m = QTY_WITH_UNIT.find(normalize(s)) ?: return null
+    val n = m.groupValues[1].toBigDecimalOrNull() ?: return null
+    return n to m.groupValues[2].trim().take(4)
+}
 
 /** 金额：固定两位小数 */
 fun fmtMoney(value: BigDecimal): String =
@@ -60,6 +75,7 @@ private fun cleanName(s: String): String =
  *  5            → 未命名，单价 5，数量 1
  *  苹果5 / 苹果 5 / 5苹果 → 苹果，5
  *  面条10，2 / 面条 10 2 / 面条10x2 → 面条，单价 10，数量 2
+ *  苹果6，2斤 / 葱3 1把 → 数量后面跟单位（斤、把……）
  * 第一个数字是单价，第二个是数量。
  */
 private fun parseLine(raw: String): ParseResult {
@@ -81,7 +97,11 @@ private fun parseLine(raw: String): ParseResult {
         .map { cleanName(it) }
         .firstOrNull { it.isNotEmpty() } ?: ""
 
-    return ParseResult.Ok(listOf(Parsed(name, price, qty)))
+    // 两个数字时，第二个数字后面紧跟的文字是单位：面条10，2斤 → 2 斤
+    val hasName = cleanName(prefix).isNotEmpty() || cleanName(between).isNotEmpty()
+    val unit = if (ms.size == 2 && hasName) cleanName(suffix).take(4) else ""
+
+    return ParseResult.Ok(listOf(Parsed(name, price, qty, unit)))
 }
 
 /** 整个输入框的内容。换行或分号分隔的多段，会拆成多笔。有一段不对就整体不入账。 */
