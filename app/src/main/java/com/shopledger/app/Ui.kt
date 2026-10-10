@@ -94,7 +94,7 @@ private const val W_PRICE = 1f
 private const val W_QTY = 0.8f
 private const val W_SUB = 1.2f
 
-/** 表格左右两边的留白，和表格离输入框的距离用同一个值；窄屏小一点 */
+/** 白色卡片（外框）离屏幕左右边缘的距离，和卡片离输入框的距离用同一个值；窄屏小一点 */
 @Composable
 private fun edgeGap(): androidx.compose.ui.unit.Dp =
     if (LocalConfiguration.current.screenWidthDp < 500) 32.dp else 48.dp
@@ -641,7 +641,7 @@ private fun TripCardView(
     onCopy: () -> Unit,
     onReopen: () -> Unit
 ) {
-    Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxWidth().padding(horizontal = edgeGap(), vertical = 6.dp), contentAlignment = Alignment.Center) {
         Surface(
             modifier = Modifier.fillMaxWidth().widthIn(max = BubbleMaxWidth),
             shape = RoundedCornerShape(18.dp),
@@ -652,7 +652,7 @@ private fun TripCardView(
             Column(
                 Modifier
                     .combinedClickable(onClick = { if (selecting) onToggle() }, onLongClick = onLongPress)
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
             ) {
                 Row(
                     Modifier.fillMaxWidth().heightIn(min = 34.dp).padding(start = 6.dp),
@@ -667,7 +667,7 @@ private fun TripCardView(
                         TickBox(checked, onToggle, tint = if (checked) Brand else Color(0xFFB7C2D2))
                     }
                 }
-                Column(Modifier.padding(horizontal = edgeGap() - 16.dp)) {
+                Column(Modifier.padding(horizontal = 4.dp)) {
                     LedgerTable(
                         entries = item.entries,
                         editingId = editingId,
