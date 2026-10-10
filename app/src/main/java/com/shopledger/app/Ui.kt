@@ -15,6 +15,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -74,6 +79,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -163,19 +169,27 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
     }
 
     // 列表用"从底往上排"（reverseLayout）：最新的一张表格永远贴在底部，
-    // 输入法弹出、收起时可视区变矮变高，贴底的内容由系统在同一帧里自动跟着走，
-    // 不需要事后再补滚动，所以不会闪、不会跳。
-    // 输入法弹出完成后，如果你原来翻到了上面的旧记录，再平滑回到最新这张。
+    // 输入法弹出、收起时可视区变矮变高，贴底的内容由系统在同一帧里自动跟着走。
+    // 点输入框的那一刻（输入法还没出来）就开始滚回最新这一张，和输入法同时动，不等它弹完。
     // 正在改某一行时，由那一行自己滚到可见位置，这里不动。
     val density = LocalDensity.current
     val imeInsets = WindowInsets.ime
-    val imeOpen = imeInsets.getBottom(density) > 0
+    val scope = rememberCoroutineScope()
     val editingNow by rememberUpdatedState(editingId)
-    LaunchedEffect(imeOpen) {
-        if (imeOpen && editingNow == null) {
-            delay(300)
-            listState.animateScrollToItem(0)
+    fun scrollToLatest() {
+        if (editingNow == null) scope.launch { listState.animateScrollToItem(0) }
+    }
+    // 兜底：输入法用别的方式弹出时（不是点输入框），一出现也立刻滚
+    LaunchedEffect(listState) {
+        snapshotFlow { imeInsets.getBottom(density) > 0 }.collect { open ->
+            if (open) scrollToLatest()
         }
+    }
+    // 顶端累计条的"压扁进度"直接跟着输入法的高度走：0＝没有输入法，1＝弹出一大半。
+    // 弹出、收起都和输入法同步，没有延迟。
+    val imeThresholdPx = with(density) { 160.dp.toPx() }
+    val imeFraction: () -> Float = {
+        (imeInsets.getBottom(density) / imeThresholdPx).coerceIn(0f, 1f)
     }
 
     val cards = ui.items.filterIsInstance<TripCard>()
@@ -232,6 +246,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
                     error = null
                 },
                 onSend = { submit() },
+                onInputTouch = { scrollToLatest() },
                 onEnd = {
                     if (ui.currentCount == 0) {
                         Toast.makeText(context, "这一趟还没有记录", Toast.LENGTH_SHORT).show()
@@ -243,7 +258,7 @@ fun LedgerScreen(vm: LedgerViewModel = viewModel()) {
         }
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            TotalBar(ui.currentTotal, ui.currentCount, compact = imeOpen)
+            TotalBar(ui.currentTotal, ui.currentCount, imeFraction)
             LazyColumn(
                 state = listState,
                 reverseLayout = true,
@@ -443,14 +458,10 @@ private fun TickBox(
 }
 
 @Composable
-private fun TotalBar(total: BigDecimal, count: Int, compact: Boolean = false) {
+private fun TotalBar(total: BigDecimal, count: Int, fraction: () -> Float) {
     // 只有一套布局，用一个 0→1 的进度连续变化：位置、高度、字号都按进度插值，
-    // 没有"换一套内容"的瞬间，所以不会闪。
-    val f by animateFloatAsState(
-        targetValue = if (compact) 1f else 0f,
-        animationSpec = tween(durationMillis = 220),
-        label = "totalBar"
-    )
+    // 进度直接来自输入法的高度，所以和输入法同步，没有延迟，也不会闪。
+    val f = fraction()
     Layout(
         content = {
             Text("当前累计", fontSize = 12.sp, color = Muted)
@@ -772,6 +783,7 @@ private fun InputBar(
     error: String?,
     onChange: (String) -> Unit,
     onSend: () -> Unit,
+    onInputTouch: () -> Unit,
     onEnd: () -> Unit
 ) {
     Column(Modifier.fillMaxWidth().background(Color(0xFFF1F3F9)).navigationBarsPadding().imePadding()) {
@@ -793,7 +805,13 @@ private fun InputBar(
             OutlinedTextField(
                 value = value,
                 onValueChange = onChange,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).pointerInput(Unit) {
+                    // 只“看”一下手指按下，不拦截，输入框照常获得焦点
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        onInputTouch()
+                    }
+                },
                 placeholder = { Text("苹果5　面条10，2", color = Color(0xFFB9C1CE)) },
                 singleLine = true,
                 shape = RoundedCornerShape(24.dp),
